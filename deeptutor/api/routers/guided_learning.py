@@ -300,19 +300,24 @@ type 可选：memory / concept / procedure / design。
         raise HTTPException(status_code=500, detail="LLM returned invalid JSON")
 
     modules_raw = data.get("modules", [])
+    if not isinstance(modules_raw, list):
+        raise HTTPException(status_code=502, detail="LLM returned invalid structure: modules is not a list")
     service = get_learning_service()
     progress = service.get_or_create(book_id)
     modules = []
     for i, m in enumerate(modules_raw):
-        kps = [
-            KnowledgePoint(
+        if not isinstance(m, dict) or "name" not in m:
+            continue
+        kps = []
+        for j, kp in enumerate(m.get("knowledge_points", [])):
+            if not isinstance(kp, dict) or "name" not in kp:
+                continue
+            kps.append(KnowledgePoint(
                 id=f"{book_id}_nb{i}_kp{j}",
                 name=kp["name"],
                 type=kp.get("type", "concept"),
                 module_id=f"{book_id}_nb{i}",
-            )
-            for j, kp in enumerate(m.get("knowledge_points", []))
-        ]
+            ))
         modules.append(LearningModule(
             id=f"{book_id}_nb{i}",
             name=m.get("name", f"模块 {i+1}"),

@@ -79,22 +79,6 @@ export async function importFromBook(bookId: string, chapters: { title: string; 
   return res.json();
 }
 
-export interface BookSummary {
-  id: string;
-  title: string;
-  description?: string;
-  status: string;
-  chapter_count: number;
-  page_count: number;
-}
-
-export async function listBooks(): Promise<BookSummary[]> {
-  const res = await apiFetch(apiUrl("/api/v1/books"));
-  if (!res.ok) throw new Error(`Failed to list books: ${res.status}`);
-  const data = await res.json();
-  return data.books ?? [];
-}
-
 export async function generateModulesFromNotebook(
   bookId: string,
   notebookId: string,

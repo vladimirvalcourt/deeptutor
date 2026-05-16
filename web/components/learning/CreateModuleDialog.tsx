@@ -5,15 +5,13 @@ import { BookOpen, FileText, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
-  fetchAllProgress,
   importFromBook,
   initModules,
-  listBooks,
   generateModulesFromNotebook,
-  type BookSummary,
   type ModuleInit,
 } from "@/lib/learning-api";
-import { listKnowledgeBases, type KnowledgeBaseSummary } from "@/lib/knowledge-api";
+import { bookApi } from "@/lib/book-api";
+import type { Book } from "@/lib/book-types";
 import {
   listNotebooks,
   getNotebook,
@@ -48,16 +46,11 @@ export default function CreateModuleDialog({
   const [manualBookId, setManualBookId] = useState("manual");
 
   // ── Book tab state ──
-  const [books, setBooks] = useState<BookSummary[]>([]);
+  const [books, setBooks] = useState<Book[]>([]);
   const [selectedBookId, setSelectedBookId] = useState<string>("");
   const [bookChapters, setBookChapters] = useState<{ title: string; learning_objectives: string[] }[]>([]);
   const [loadingBooks, setLoadingBooks] = useState(false);
   const [loadingChapters, setLoadingChapters] = useState(false);
-
-  // ── KB tab state ──
-  const [kbList, setKbList] = useState<KnowledgeBaseSummary[]>([]);
-  const [selectedKb, setSelectedKb] = useState<string>("");
-  const [loadingKb, setLoadingKb] = useState(false);
 
   // ── Notebook tab state ──
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
@@ -76,17 +69,10 @@ export default function CreateModuleDialog({
     if (!open) return;
     if (tab === "book" && books.length === 0) {
       setLoadingBooks(true);
-      listBooks()
-        .then(setBooks)
+      bookApi.list()
+        .then((data) => setBooks(data.books ?? []))
         .catch(() => setError(t("guidedLearning.loadBooksFailed")))
         .finally(() => setLoadingBooks(false));
-    }
-    if (tab === "kb" && kbList.length === 0) {
-      setLoadingKb(true);
-      listKnowledgeBases()
-        .then(setKbList)
-        .catch(() => setError(t("guidedLearning.loadKbFailed")))
-        .finally(() => setLoadingKb(false));
     }
     if (tab === "notebook" && notebooks.length === 0) {
       setLoadingNotebooks(true);
@@ -95,7 +81,7 @@ export default function CreateModuleDialog({
         .catch(() => setError(t("guidedLearning.loadNotebooksFailed")))
         .finally(() => setLoadingNotebooks(false));
     }
-  }, [open, tab, books.length, kbList.length, notebooks.length, t]);
+  }, [open, tab, books.length, notebooks.length, t]);
 
   // Load chapters when book selected
   useEffect(() => {
@@ -126,7 +112,6 @@ export default function CreateModuleDialog({
     setManualBookId("manual");
     setSelectedBookId("");
     setBookChapters([]);
-    setSelectedKb("");
     setSelectedNotebook("");
     setNotebookRecords([]);
     setSelectedRecordIds(new Set());
@@ -192,31 +177,6 @@ export default function CreateModuleDialog({
     }
   };
 
-  const handleKbSubmit = async () => {
-    if (!selectedKb) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      const bookId = `kb_${selectedKb}`;
-      // For KB import, we create a single module with the KB name
-      // The actual LLM-based module generation would need a dedicated endpoint
-      const modules: ModuleInit[] = [{
-        id: `${bookId}_m0`,
-        name: selectedKb,
-        order: 0,
-        pass_threshold: 0.7,
-        knowledge_points: [],
-      }];
-      await initModules(bookId, modules);
-      onCreated();
-      handleClose();
-    } catch {
-      setError(t("guidedLearning.importKbFailed"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const handleNotebookSubmit = async () => {
     if (!selectedNotebook || selectedRecordIds.size === 0) return;
     setSubmitting(true);
@@ -226,11 +186,7 @@ export default function CreateModuleDialog({
       const records = notebookRecords
         .filter((r) => selectedRecordIds.has(r.id))
         .map((r) => ({ id: r.id, type: r.type, title: r.title, output: r.output }));
-      const result = await generateModulesFromNotebook(bookId, selectedNotebook, records.slice(0, 20));
-      // After LLM generates, init the modules
-      if (result.modules && result.modules.length > 0) {
-        await initModules(bookId, result.modules);
-      }
+      await generateModulesFromNotebook(bookId, selectedNotebook, records.slice(0, 20));
       onCreated();
       handleClose();
     } catch {
@@ -245,7 +201,7 @@ export default function CreateModuleDialog({
   const tabs: { key: TabKey; label: string }[] = [
     { key: "manual", label: t("guidedLearning.tabManual") },
     { key: "book", label: t("guidedLearning.tabBook") },
-    { key: "kb", label: t("guidedLearning.tabKb") },
+    { key: "kb", label: t("guidedLearning.tabKb") + " (" + t("guidedLearning.comingSoon") + ")" },
     { key: "notebook", label: t("guidedLearning.tabNotebook") },
   ];
 
@@ -398,7 +354,7 @@ export default function CreateModuleDialog({
                       >
                         <div className="font-medium truncate">{book.title || book.id}</div>
                         <div className="text-xs opacity-70">
-                          {book.chapter_count} {t("guidedLearning.chapters")} · {book.status}
+                          {book.chapter_count ?? 0} {t("guidedLearning.chapters")} · {book.status}
                         </div>
                       </button>
                     ))}
@@ -441,35 +397,10 @@ export default function CreateModuleDialog({
 
           {/* KB Tab */}
           {tab === "kb" && (
-            <div className="space-y-3">
-              {loadingKb ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-[var(--muted-foreground)]" />
-                </div>
-              ) : kbList.length === 0 ? (
-                <div className="py-8 text-center text-sm text-[var(--muted-foreground)]">
-                  {t("guidedLearning.noKb")}
-                </div>
-              ) : (
-                <div className="max-h-60 overflow-y-auto space-y-1">
-                  {kbList.map((kb) => (
-                    <button
-                      key={kb.name}
-                      onClick={() => setSelectedKb(kb.name)}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                        selectedKb === kb.name
-                          ? "bg-[var(--primary)]/10 border border-[var(--primary)]/30 text-[var(--foreground)]"
-                          : "border border-transparent text-[var(--muted-foreground)] hover:bg-[var(--secondary)]/40 hover:text-[var(--foreground)]"
-                      }`}
-                    >
-                      <div className="font-medium truncate">{kb.name}</div>
-                      {kb.status && (
-                        <div className="text-xs opacity-70">{kb.status}</div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="flex flex-col items-center justify-center py-8 text-[var(--muted-foreground)]">
+              <BookOpen className="w-8 h-8 mb-3 opacity-40" />
+              <p className="text-sm font-medium">{t("guidedLearning.kbComingSoon")}</p>
+              <p className="text-xs mt-1 opacity-70">{t("guidedLearning.kbComingSoonDesc")}</p>
             </div>
           )}
 
@@ -577,10 +508,9 @@ export default function CreateModuleDialog({
             onClick={() => {
               if (tab === "manual") void handleManualSubmit();
               else if (tab === "book") void handleBookSubmit();
-              else if (tab === "kb") void handleKbSubmit();
               else if (tab === "notebook") void handleNotebookSubmit();
             }}
-            disabled={submitting || (tab === "book" && (!selectedBookId || bookChapters.length === 0)) || (tab === "notebook" && selectedRecordIds.size === 0)}
+            disabled={submitting || tab === "kb" || (tab === "book" && (!selectedBookId || bookChapters.length === 0)) || (tab === "notebook" && selectedRecordIds.size === 0)}
             className="flex items-center gap-1.5 px-4 py-1.5 text-sm rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 disabled:opacity-50"
           >
             {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

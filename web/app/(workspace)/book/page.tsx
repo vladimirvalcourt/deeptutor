@@ -71,6 +71,7 @@ function BookPageInner() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loadingBooks, setLoadingBooks] = useState(false);
   const [view, setView] = useState<View>("list");
+  const [toast, setToast] = useState("");
 
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BookDetail | null>(null);
@@ -125,6 +126,12 @@ function BookPageInner() {
   useEffect(() => {
     void refreshBooks();
   }, [refreshBooks]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(""), 3500);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   // ── Live WS event subscription ─────────────────────────────────────
 
@@ -249,7 +256,7 @@ function BookPageInner() {
       await importFromBook(book.id, chapters);
       router.push(`/learning/${book.id}`);
     } catch {
-      // silent — navigation won't happen on failure
+      setToast(t("guidedLearning.startLearningFailed"));
     }
   }, [router]);
 
@@ -467,6 +474,11 @@ function BookPageInner() {
 
   return (
     <div className="flex h-screen w-full">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-red-500/90 px-4 py-2 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
       {view !== "list" && (
         <BookSidebar
           book={detail?.book || pendingBook || null}
