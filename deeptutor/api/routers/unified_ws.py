@@ -246,6 +246,7 @@ async def unified_websocket(ws: WebSocket) -> None:
                     continue
                 from deeptutor.learning.service import LearningService
                 from deeptutor.learning.storage import LearningStore
+                from deeptutor.learning.models import LearningStage
 
                 store = LearningStore()
                 service = LearningService(store)
@@ -254,6 +255,7 @@ async def unified_websocket(ws: WebSocket) -> None:
                 if found:
                     progress.current_module_id = module_id
                     progress.current_kp_index = 0
+                    progress.current_stage = LearningStage.PRETEST
                     service.save(progress)
                 await safe_send({"type": "module_changed", "module_id": module_id, "success": found})
                 continue

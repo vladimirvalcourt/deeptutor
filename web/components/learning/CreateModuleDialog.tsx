@@ -86,6 +86,7 @@ export default function CreateModuleDialog({
   // Load chapters when book selected
   useEffect(() => {
     if (!selectedBookId) { setBookChapters([]); return; }
+    setBookChapters([]);
     setLoadingChapters(true);
     import("@/lib/book-api").then(({ bookApi }) =>
       bookApi.get(selectedBookId)
@@ -136,16 +137,17 @@ export default function CreateModuleDialog({
     setError(null);
     try {
       const bookId = manualBookId.trim() || "manual";
+      const moduleId = `${bookId}_m${Date.now()}`;
       const modules: ModuleInit[] = [{
-        id: `${bookId}_m0`,
+        id: moduleId,
         name: moduleName.trim() || t("guidedLearning.untitledModule"),
         order: 0,
         pass_threshold: 0.7,
         knowledge_points: validKps.map((kp, j) => ({
-          id: `${bookId}_m0_kp${j}`,
+          id: `${moduleId}_kp${j}`,
           name: kp.name.trim(),
           type: kp.type,
-          module_id: `${bookId}_m0`,
+          module_id: moduleId,
         })),
       }];
       await initModules(bookId, modules);
