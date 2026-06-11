@@ -283,7 +283,7 @@ Przydatne dodatki deweloperskie:
 
 ```bash
 pip install -e ".[dev]"             # narzędzia tests/lint
-pip install -e ".[tutorbot]"        # silnik TutorBot + SDK kanałów
+pip install -e ".[partners]"        # SDK kanałów partnerów + klient MCP
 pip install -e ".[matrix]"          # kanał Matrix bez E2EE/libolm
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; wymaga libolm
 pip install -e ".[math-animator]"   # dodatek Manim; wymaga LaTeX/ffmpeg/bibliotek systemowych

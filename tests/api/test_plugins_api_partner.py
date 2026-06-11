@@ -60,9 +60,7 @@ def _client_with_fake_partner(monkeypatch):
             self.calls.append({"partner_id": partner_id, "content": content, **kwargs})
             on_event = kwargs.get("on_event")
             if on_event:
-                await on_event(
-                    StreamEvent(type=StreamEventType.THINKING, content="thinking")
-                )
+                await on_event(StreamEvent(type=StreamEventType.THINKING, content="thinking"))
             return "streamed answer"
 
     mgr = FakeMgr()

@@ -5,6 +5,7 @@ import {
   BookMarked,
   Brain,
   Database,
+  FileScan,
   Network,
   Palette,
   Plug,
@@ -23,6 +24,7 @@ export type SettingsItemKey =
   | "llm"
   | "embedding"
   | "search"
+  | "mineru"
   | "memory"
   | "capabilities";
 
@@ -32,6 +34,8 @@ export interface SettingsItem {
   label: string;
   description: string;
   icon: LucideIcon;
+  /** Hidden from non-admin users (the backend rejects them anyway). */
+  adminOnly?: boolean;
 }
 
 export const SETTINGS_ITEMS: SettingsItem[] = [
@@ -78,6 +82,13 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     icon: Search,
   },
   {
+    key: "mineru",
+    href: "/settings/mineru",
+    label: "MinerU PDF",
+    description: "PDF parsing backend (local or cloud API).",
+    icon: FileScan,
+  },
+  {
     key: "capabilities",
     href: "/settings/capabilities",
     label: "Capabilities",
@@ -95,8 +106,9 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
     key: "mcp",
     href: "/settings/mcp",
     label: "MCP servers",
-    description: "External MCP servers (coming soon).",
+    description: "External MCP servers shared by the deployment.",
     icon: Plug,
+    adminOnly: true,
   },
   {
     key: "tools",

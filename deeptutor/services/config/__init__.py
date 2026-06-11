@@ -26,6 +26,7 @@ from .runtime_settings import (
     get_runtime_settings_service,
     load_auth_settings,
     load_integrations_settings,
+    load_mineru_settings,
     load_system_settings,
 )
 
@@ -70,6 +71,7 @@ __all__ = [
     "get_runtime_settings_service",
     "load_auth_settings",
     "load_integrations_settings",
+    "load_mineru_settings",
     "load_system_settings",
 ]
 

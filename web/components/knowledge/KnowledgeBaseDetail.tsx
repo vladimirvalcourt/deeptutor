@@ -117,7 +117,7 @@ export default function KnowledgeBaseDetail({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-[18px] font-semibold tracking-tight text-[var(--foreground)]">
+              <h1 className="truncate font-serif text-[18px] font-semibold tracking-tight text-[var(--foreground)]">
                 {kb.name}
               </h1>
               {kb.is_default && (

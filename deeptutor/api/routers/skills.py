@@ -25,6 +25,7 @@ from deeptutor.services.skill.service import (
     InvalidTagError,
     SkillExistsError,
     SkillNotFoundError,
+    SkillReadOnlyError,
     TagExistsError,
     TagNotFoundError,
 )
@@ -177,6 +178,8 @@ async def update_skill(name: str, payload: UpdateSkillRequest) -> dict[str, obje
         return info.to_dict()
     except SkillNotFoundError:
         raise HTTPException(status_code=404, detail=f"Skill not found: {name}")
+    except SkillReadOnlyError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except SkillExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except InvalidSkillNameError as exc:
@@ -193,5 +196,7 @@ async def delete_skill(name: str) -> dict[str, str]:
         return {"status": "deleted", "name": name}
     except SkillNotFoundError:
         raise HTTPException(status_code=404, detail=f"Skill not found: {name}")
+    except SkillReadOnlyError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
     except InvalidSkillNameError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

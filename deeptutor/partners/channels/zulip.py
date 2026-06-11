@@ -176,16 +176,15 @@ class ZulipChannel(BaseChannel):
         if not metadata.get("_progress", False):
             self._stop_typing(msg.chat_id)
 
-        try:
-            for media_path in msg.media or []:
-                await self._upload_and_send(msg.chat_id, media_path, metadata)
+        # Raise on delivery failure so the channel manager's retry applies
+        # (zulip's _call_with_retry already retries transient API errors).
+        for media_path in msg.media or []:
+            await self._upload_and_send(msg.chat_id, media_path, metadata)
 
-            if msg.content and msg.content != "[empty message]":
-                converted = self._convert_latex_to_zulip(msg.content)
-                for chunk in split_message(converted, ZULIP_MAX_MESSAGE_LEN):
-                    await self._send_text(msg.chat_id, chunk, metadata)
-        except Exception as e:
-            logger.error("Zulip send error: {}", e)
+        if msg.content and msg.content != "[empty message]":
+            converted = self._convert_latex_to_zulip(msg.content)
+            for chunk in split_message(converted, ZULIP_MAX_MESSAGE_LEN):
+                await self._send_text(msg.chat_id, chunk, metadata)
 
     def _metadata_for_send(self, msg: OutboundMessage) -> dict:
         metadata = msg.metadata or {}

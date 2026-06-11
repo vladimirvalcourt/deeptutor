@@ -145,6 +145,97 @@ class AutoPipeline:
         self.tool_registry = get_tool_registry()
         self.usage = UsageTracker(model=self.model)
 
+    def _text(self, key: str, **kwargs: Any) -> str:
+        messages = {
+            "analyzing_request": {
+                "en": "Analyzing request",
+                "zh": "正在分析请求",
+            },
+            "auto_routing": {
+                "en": "Auto routing",
+                "zh": "Auto 路由",
+            },
+            "final_synthesis": {
+                "en": "Final synthesis",
+                "zh": "最终综合",
+            },
+            "available_context": {
+                "en": "[available context]",
+                "zh": "[可用上下文]",
+            },
+            "selected_kbs": {
+                "en": "User-selected KB(s): {value}",
+                "zh": "用户选择的知识库：{value}",
+            },
+            "selected_tools": {
+                "en": "User-selected tool(s): {value}",
+                "zh": "用户选择的工具：{value}",
+            },
+            "attachments": {
+                "en": "Attachments: {value}",
+                "zh": "附件：{value}",
+            },
+            "router_exhausted": {
+                "en": "Auto routing failed: router LLM exhausted {max_retries} retries.",
+                "zh": "Auto 路由失败：路由 LLM 已耗尽 {max_retries} 次重试。",
+            },
+            "router_unparseable": {
+                "en": "Router output unparseable: {error}",
+                "zh": "路由输出无法解析：{error}",
+            },
+            "router_parse_retry": {
+                "en": (
+                    "Your previous response could not be parsed: {error}. "
+                    "Please try again, ensuring tool call arguments are valid JSON."
+                ),
+                "zh": "你上一次回复无法解析：{error}。请重试，并确保工具调用参数是有效 JSON。",
+            },
+            "router_llm_error": {
+                "en": "Router LLM error (attempt {attempt}/{max_retries}): {error}",
+                "zh": "路由 LLM 错误（第 {attempt}/{max_retries} 次）：{error}",
+            },
+            "router_transient_retry": {
+                "en": "The previous LLM call failed transiently: {error}. Please retry the same decision.",
+                "zh": "上一次 LLM 调用发生临时错误：{error}。请重试同一决策。",
+            },
+            "empty_result": {
+                "en": "(empty result)",
+                "zh": "（空结果）",
+            },
+            "atomic_tool_failed": {
+                "en": "Atomic tool {name} failed: {error}",
+                "zh": "原子工具 {name} 执行失败：{error}",
+            },
+            "same_cap_exhausted": {
+                "en": (
+                    "Cannot call {name} again; already used {count}/{count} allowed times. "
+                    "Choose a different capability or finalize a text answer."
+                ),
+                "zh": "不能再次调用 {name}；已用完 {count}/{count} 次额度。请选择其他能力或直接输出文本答案。",
+            },
+            "invalid_args": {
+                "en": "Invalid args for {name}: {error}",
+                "zh": "{name} 的参数无效：{error}",
+            },
+            "invalid_args_retry": {
+                "en": "Invalid args for {name}: {error}. Re-issue the call with corrected arguments.",
+                "zh": "{name} 的参数无效：{error}。请使用修正后的参数重新调用。",
+            },
+            "subcap_failed": {
+                "en": (
+                    "Sub-capability {name} failed after {retries} retries: {error}. "
+                    "Pick a different capability or finalize a text answer."
+                ),
+                "zh": "子能力 {name} 在 {retries} 次重试后失败：{error}。请改用其他能力或直接输出文本答案。",
+            },
+            "unknown_error": {
+                "en": "unknown error",
+                "zh": "未知错误",
+            },
+        }
+        text = messages.get(key, {}).get(self.language) or messages.get(key, {}).get("en") or key
+        return text.format(**kwargs) if kwargs else text
+
     # ====================================================================== #
     # Entry point                                                              #
     # ====================================================================== #
@@ -170,7 +261,7 @@ class AutoPipeline:
         trace_meta = build_trace_metadata(
             call_id=new_call_id("auto-analyzing"),
             phase="analyzing",
-            label="Analyzing request",
+            label=self._text("analyzing_request"),
             call_kind="llm_analysis",
             trace_id="auto-analyzing",
             trace_role="auto",
@@ -178,7 +269,7 @@ class AutoPipeline:
         )
         async with stream.stage("analyzing", source="auto"):
             await stream.progress(
-                "Analyzing request",
+                self._text("analyzing_request"),
                 source="auto",
                 stage="analyzing",
                 metadata={**trace_meta, "trace_kind": "call_status", "call_state": "running"},
@@ -270,18 +361,18 @@ class AutoPipeline:
         user_blob = context.user_message or ""
         hints = self._render_context_hints(context)
         if hints:
-            user_blob = f"{user_blob}\n\n[available context]\n{hints}"
+            user_blob = f"{user_blob}\n\n{self._text('available_context')}\n{hints}"
         return [*system_msgs, *history, {"role": "user", "content": user_blob}]
 
     def _render_context_hints(self, context: UnifiedContext) -> str:
         parts: list[str] = []
         if context.knowledge_bases:
-            parts.append(f"User-selected KB(s): {', '.join(context.knowledge_bases)}")
+            parts.append(self._text("selected_kbs", value=", ".join(context.knowledge_bases)))
         if context.enabled_tools:
-            parts.append(f"User-selected tool(s): {', '.join(context.enabled_tools)}")
+            parts.append(self._text("selected_tools", value=", ".join(context.enabled_tools)))
         if context.attachments:
             atts = [f"{a.type}:{a.filename or '(unnamed)'}" for a in context.attachments]
-            parts.append(f"Attachments: {', '.join(atts)}")
+            parts.append(self._text("attachments", value=", ".join(atts)))
         return "\n".join(parts)
 
     # --- Router LLM call with retry on transient errors ------------------- #
@@ -307,7 +398,7 @@ class AutoPipeline:
             remaining = max_retries - state.router_llm_retries
             if remaining <= 0:
                 await stream.error(
-                    f"Auto routing failed: router LLM exhausted {max_retries} retries.",
+                    self._text("router_exhausted", max_retries=max_retries),
                     source="auto",
                     stage="delegating",
                     metadata={
@@ -332,7 +423,7 @@ class AutoPipeline:
                 # tool_call arguments etc). Feed the error back and retry.
                 state.router_llm_retries += 1
                 await stream.error(
-                    f"Router output unparseable: {exc}",
+                    self._text("router_unparseable", error=exc),
                     source="auto",
                     stage="delegating",
                     metadata={
@@ -344,16 +435,18 @@ class AutoPipeline:
                 local_messages = local_messages + [
                     {
                         "role": "user",
-                        "content": (
-                            f"Your previous response could not be parsed: {exc}. "
-                            "Please try again, ensuring tool call arguments are valid JSON."
-                        ),
+                        "content": self._text("router_parse_retry", error=exc),
                     }
                 ]
             except _ROUTER_TRANSIENT_EXCEPTIONS as exc:
                 state.router_llm_retries += 1
                 await stream.error(
-                    f"Router LLM error (attempt {state.router_llm_retries}/{max_retries}): {exc}",
+                    self._text(
+                        "router_llm_error",
+                        attempt=state.router_llm_retries,
+                        max_retries=max_retries,
+                        error=exc,
+                    ),
                     source="auto",
                     stage="delegating",
                     metadata={
@@ -365,10 +458,7 @@ class AutoPipeline:
                 local_messages = local_messages + [
                     {
                         "role": "user",
-                        "content": (
-                            f"The previous LLM call failed transiently: {exc}. "
-                            "Please retry the same decision."
-                        ),
+                        "content": self._text("router_transient_retry", error=exc),
                     }
                 ]
 
@@ -388,7 +478,7 @@ class AutoPipeline:
         trace_meta = build_trace_metadata(
             call_id=new_call_id("auto-routing"),
             phase="delegating",
-            label="Auto routing",
+            label=self._text("auto_routing"),
             call_kind="tool_planning",
             trace_id="auto-routing",
             trace_role="tool",
@@ -396,7 +486,7 @@ class AutoPipeline:
             iteration=iteration,
         )
         await stream.progress(
-            "Auto routing",
+            self._text("auto_routing"),
             source="auto",
             stage="delegating",
             metadata={**trace_meta, "trace_kind": "call_status", "call_state": "running"},
@@ -574,9 +664,13 @@ class AutoPipeline:
         )
         state.atomic_results.append(result)
         if result.succeeded:
-            payload = result.content or "(empty result)"
+            payload = result.content or self._text("empty_result")
         else:
-            payload = f"Atomic tool {call.name} failed: {result.error_message}"
+            payload = self._text(
+                "atomic_tool_failed",
+                name=call.name,
+                error=result.error_message,
+            )
         return {
             "role": "tool",
             "tool_call_id": call.id,
@@ -597,11 +691,10 @@ class AutoPipeline:
         """Validate args, enforce quotas, run sub-cap with retry. Returns tool-role message."""
         # Same-capability quota: only counts successful completions.
         if state.same_cap_calls[cap_name] >= auto_config.max_same_capability_calls:
-            payload = (
-                f"Cannot call {cap_name} again — already used "
-                f"{auto_config.max_same_capability_calls}/"
-                f"{auto_config.max_same_capability_calls} allowed times. "
-                "Choose a different capability or finalize a text answer."
+            payload = self._text(
+                "same_cap_exhausted",
+                name=cap_name,
+                count=auto_config.max_same_capability_calls,
             )
             await stream.error(
                 payload,
@@ -623,7 +716,7 @@ class AutoPipeline:
             validated_config = validate_capability_config(cap_name, config_payload)
         except ValueError as exc:
             await stream.error(
-                f"Invalid args for {cap_name}: {exc}",
+                self._text("invalid_args", name=cap_name, error=exc),
                 source="auto",
                 stage="delegating",
                 metadata={
@@ -631,9 +724,7 @@ class AutoPipeline:
                     "delegated_capability": cap_name,
                 },
             )
-            payload = (
-                f"Invalid args for {cap_name}: {exc}. Re-issue the call with corrected arguments."
-            )
+            payload = self._text("invalid_args_retry", name=cap_name, error=exc)
             return {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": payload}
 
         # Allow the LLM to override per-delegation tool/KB scope.
@@ -656,12 +747,13 @@ class AutoPipeline:
         # latency / tokens / sub-cap attempts).
         state.same_cap_calls[cap_name] += 1
         if result.succeeded:
-            summary = _summarize_delegation_success(cap_name, result)
+            summary = _summarize_delegation_success(cap_name, result, language=self.language)
         else:
-            summary = (
-                f"Sub-capability {cap_name} failed after {auto_config.max_retries_per_step} "
-                f"retries: {result.error_message or 'unknown error'}. "
-                "Pick a different capability or finalize a text answer."
+            summary = self._text(
+                "subcap_failed",
+                name=cap_name,
+                retries=auto_config.max_retries_per_step,
+                error=result.error_message or self._text("unknown_error"),
             )
         return {"role": "tool", "tool_call_id": call.id, "name": call.name, "content": summary}
 
@@ -679,7 +771,7 @@ class AutoPipeline:
         trace_meta = build_trace_metadata(
             call_id=new_call_id("auto-synthesizing"),
             phase="synthesizing",
-            label="Final synthesis",
+            label=self._text("final_synthesis"),
             call_kind="llm_final_response",
             trace_id="auto-synthesizing",
             trace_role="auto",
@@ -718,7 +810,11 @@ class AutoPipeline:
                         {"role": "system", "content": synthesizer_system_prompt(self.language)},
                         {
                             "role": "user",
-                            "content": _render_synthesizer_user_blob(context, state),
+                            "content": _render_synthesizer_user_blob(
+                                context,
+                                state,
+                                language=self.language,
+                            ),
                         },
                     ],
                     max_tokens=SYNTHESIZER_MAX_TOKENS,
@@ -970,37 +1066,62 @@ def _strip_runtime_keys(config_overrides: dict[str, Any] | None) -> dict[str, An
     return cleaned
 
 
-def _summarize_delegation_success(cap_name: str, result: DelegationResult) -> str:
+def _summarize_delegation_success(
+    cap_name: str,
+    result: DelegationResult,
+    *,
+    language: str = "en",
+) -> str:
     """Compact summary fed to the router as the tool-role result."""
+    zh = (language or "en").lower().startswith("zh")
     meta = result.result_metadata or {}
     response_snippet = str(meta.get("response") or "").strip()
     if response_snippet:
         clipped = response_snippet[:600] + ("..." if len(response_snippet) > 600 else "")
-        return (
-            f"`{cap_name}` completed successfully. Result preview: {clipped}. "
-            "The user can see the full output above; you do not need to repeat it."
-        )
-    return f"`{cap_name}` completed successfully."
+        if zh:
+            return f"`{cap_name}` 已成功完成。结果预览：{clipped}。用户可以看到上方完整输出；无需重复全文。"
+        return f"`{cap_name}` completed successfully. Result preview: {clipped}. The user can see the full output above; you do not need to repeat it."
+    return f"`{cap_name}` 已成功完成。" if zh else f"`{cap_name}` completed successfully."
 
 
-def _render_synthesizer_user_blob(context: UnifiedContext, state: _LoopState) -> str:
+def _render_synthesizer_user_blob(
+    context: UnifiedContext,
+    state: _LoopState,
+    *,
+    language: str = "en",
+) -> str:
     """Compose the user-message blob for the synthesizer LLM call."""
+    zh = (language or "en").lower().startswith("zh")
     parts: list[str] = []
-    parts.append(f"Original request: {context.user_message or ''}")
+    parts.append(
+        f"原始请求：{context.user_message or ''}"
+        if zh
+        else f"Original request: {context.user_message or ''}"
+    )
     if state.delegations:
         lines = []
         for d in state.delegations:
-            status = "OK" if d.succeeded else f"FAIL ({d.error_message})"
+            if d.succeeded:
+                status = "成功" if zh else "OK"
+            else:
+                status = f"失败（{d.error_message}）" if zh else f"FAIL ({d.error_message})"
             lines.append(f"- {d.capability}: {status}")
-        parts.append("Capability calls:\n" + "\n".join(lines))
+        header = "能力调用：\n" if zh else "Capability calls:\n"
+        parts.append(header + "\n".join(lines))
     if state.atomic_results:
         lines = []
         for r in state.atomic_results:
-            status = "OK" if r.succeeded else f"FAIL ({r.error_message})"
+            if r.succeeded:
+                status = "成功" if zh else "OK"
+            else:
+                status = f"失败（{r.error_message}）" if zh else f"FAIL ({r.error_message})"
             lines.append(f"- {r.tool_name}: {status}")
-        parts.append("Atomic tool calls:\n" + "\n".join(lines))
+        header = "原子工具调用：\n" if zh else "Atomic tool calls:\n"
+        parts.append(header + "\n".join(lines))
     if state.iteration:
-        parts.append(f"Iterations used: {state.iteration}")
+        parts.append(
+            f"已使用迭代次数：{state.iteration}" if zh else f"Iterations used: {state.iteration}"
+        )
     return "\n\n".join(parts)
 
 

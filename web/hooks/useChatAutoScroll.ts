@@ -179,6 +179,53 @@ export function useChatAutoScroll({
     shouldAutoScrollRef.current = distanceFromBottom < 80;
   }, []);
 
+  // Intent-based release. The streaming rAF above re-pins to
+  // ``scrollHeight`` every frame, so the position-only ``handleScroll``
+  // check can NEVER observe the user trying to scroll up mid-stream: the
+  // pin snaps them back to the bottom before the ``scroll`` event is even
+  // handled, so ``distanceFromBottom`` always reads ~0 and the pin never
+  // releases — the viewport feels frozen. We therefore release the pin the
+  // instant we see an UPWARD scroll *gesture* (wheel up, or a touch drag
+  // that pulls earlier content into view), which is unambiguous user intent
+  // and independent of where the pin has parked the scroll position. Once
+  // released the rAF stops fighting, the user is free to browse, and
+  // ``handleScroll`` re-arms the pin when they return near the bottom.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const release = () => {
+      shouldAutoScrollRef.current = false;
+    };
+
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) release();
+    };
+
+    let touchY = 0;
+    const onTouchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY ?? 0;
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY ?? 0;
+      // Finger dragging downward scrolls the content up (reveals earlier
+      // messages) — an explicit "let me read back" gesture.
+      if (y - touchY > 4) release();
+      touchY = y;
+    };
+
+    container.addEventListener("wheel", onWheel, { passive: true });
+    container.addEventListener("touchstart", onTouchStart, { passive: true });
+    container.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      container.removeEventListener("wheel", onWheel);
+      container.removeEventListener("touchstart", onTouchStart);
+      container.removeEventListener("touchmove", onTouchMove);
+    };
+    // Re-attach when the scroll container (re)mounts — it only exists once
+    // there are messages to show.
+  }, [hasMessages]);
+
   // ``scrollToBottom`` is preserved as a public escape hatch (e.g. an
   // imperative "jump to latest" button) but kept ``instant`` so it
   // never animates against an active stream.

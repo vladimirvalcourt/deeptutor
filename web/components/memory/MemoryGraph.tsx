@@ -301,7 +301,7 @@ function Header({
           {t("Memory")}
         </Link>
         <div className="flex flex-col">
-          <h1 className="text-[16px] font-semibold tracking-tight text-[var(--foreground)]">
+          <h1 className="font-serif text-[16px] font-semibold tracking-tight text-[var(--foreground)]">
             {t("Memory graph")}
           </h1>
           <p className="text-[11.5px] text-[var(--muted-foreground)]">

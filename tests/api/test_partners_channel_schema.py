@@ -155,11 +155,11 @@ class TestEndpoint:
         app.include_router(partners_router.router, prefix="/api/v1/partners")
         return TestClient(app)
 
-    def test_returns_channels_and_global(self, client: TestClient) -> None:
+    def test_returns_channels_only(self, client: TestClient) -> None:
         res = client.get("/api/v1/partners/channels/schema")
         assert res.status_code == 200
         body = res.json()
-        assert set(body.keys()) >= {"channels", "global"}
+        assert set(body.keys()) == {"channels"}
         # Telegram is always installed (no extra deps).
         assert "telegram" in body["channels"]
 
@@ -169,11 +169,11 @@ class TestEndpoint:
         assert tg["secret_fields"] == ["token"]
         assert "token" in tg["json_schema"]["properties"]
 
-    def test_global_schema_uses_snake_case(self, client: TestClient) -> None:
+    def test_delivery_flags_are_per_channel(self, client: TestClient) -> None:
         res = client.get("/api/v1/partners/channels/schema")
-        global_props = res.json()["global"]["json_schema"]["properties"]
-        assert "send_progress" in global_props
-        assert "send_tool_hints" in global_props
+        props = res.json()["channels"]["telegram"]["json_schema"]["properties"]
+        assert "send_progress" in props
+        assert "send_tool_hints" in props
 
 
 class TestAllChannelSchemas:

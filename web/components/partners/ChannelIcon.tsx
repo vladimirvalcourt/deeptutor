@@ -3,17 +3,21 @@
 /**
  * Per-channel brand icons for the partner Channels UI.
  *
- * Sources: simple-icons (CC0) for most brands; Feishu/Lark comes from
- * ByteDance's own IconPark set (`new-lark`, Apache-2.0), DingTalk from
- * Ant Design Icons (MIT), and WeCom from Tencent's TDesign icons
- * (`logo-wecom`, MIT) recolored per subpath to the official brand palette
- * (sampled from work.weixin.qq.com's logo) — the vendors' official icon
- * libraries. Brands with no clean vector source (Slack, MoChat) render as
- * brand-colored letter badges. Unknown channels fall back to a neutral
- * radio mark; email uses a neutral envelope.
+ * Sources: simple-icons (CC0) for most brands (incl. WeChat/weixin);
+ * Feishu/Lark comes from ByteDance's own IconPark set (`new-lark`,
+ * Apache-2.0), DingTalk from Ant Design Icons (MIT), WeCom from Tencent's
+ * TDesign icons (`logo-wecom`, MIT) recolored per subpath to the official
+ * brand palette (sampled from work.weixin.qq.com's logo), and Microsoft
+ * Teams from the SVG Logos set (gilbarbara/logos, CC0) with its square's
+ * gradient flattened to the solid mid-stop so no <defs> ids can collide.
+ * NapCat (personal QQ bridge) has no brand vector, so it renders Lucide's
+ * cat mark (ISC) on a QQ-blue badge — distinct from the QQ penguin. Brands
+ * with no clean vector source (Slack, MoChat) render as brand-colored
+ * letter badges. Unknown channels fall back to a neutral radio mark; email
+ * uses a neutral envelope.
  */
 
-import { Mail, Radio } from "lucide-react";
+import { Cat, Mail, Radio } from "lucide-react";
 
 const BRAND_PATHS: Record<string, { hex: string; path: string }> = {
   discord: {
@@ -35,6 +39,10 @@ const BRAND_PATHS: Record<string, { hex: string; path: string }> = {
   whatsapp: {
     hex: "#25D366",
     path: "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z",
+  },
+  weixin: {
+    hex: "#07C160",
+    path: "M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213c0 .163.13.295.29.295a.33.33 0 0 0 .167-.054l1.903-1.114a.86.86 0 0 1 .717-.098a10.2 10.2 0 0 0 2.837.403c.276 0 .543-.027.811-.05c-.857-2.578.157-4.972 1.932-6.446c1.703-1.415 3.882-1.98 5.853-1.838c-.576-3.583-4.196-6.348-8.596-6.348M5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178a1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18m5.34 2.867c-1.797-.052-3.746.512-5.28 1.786c-1.72 1.428-2.687 3.72-1.78 6.22c.942 2.453 3.666 4.229 6.884 4.229c.826 0 1.622-.12 2.361-.336a.72.72 0 0 1 .598.082l1.584.926a.3.3 0 0 0 .14.047c.134 0 .24-.111.24-.247c0-.06-.023-.12-.038-.177l-.327-1.233a.6.6 0 0 1-.023-.156a.49.49 0 0 1 .201-.398C23.024 18.48 24 16.82 24 14.98c0-3.21-2.931-5.837-6.656-6.088V8.89c-.135-.01-.27-.027-.407-.03zm-2.53 3.274c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983a.976.976 0 0 1-.969-.983c0-.542.434-.982.97-.982zm4.844 0c.535 0 .969.44.969.982a.976.976 0 0 1-.969.983a.976.976 0 0 1-.969-.983c0-.542.434-.982.969-.982",
   },
   zulip: {
     hex: "#6492FE",
@@ -130,6 +138,70 @@ function WeComIcon({ size, className }: { size: number; className: string }) {
   );
 }
 
+/**
+ * Microsoft Teams' two-person + "T" tile mark — SVG Logos
+ * `microsoft-teams`, with the tile's <defs> gradient flattened to its solid
+ * mid-stop (#4D55BD) and the opacity-only shadow paths dropped (invisible
+ * at badge sizes; gradient ids would collide across multiple instances).
+ */
+const MSTEAMS_PATHS: Array<{ hex: string; path: string }> = [
+  {
+    // Right person: body
+    hex: "#5059C9",
+    path: "M178.563 89.302h66.125c6.248 0 11.312 5.065 11.312 11.312v60.231c0 22.96-18.613 41.574-41.573 41.574h-.197c-22.96.003-41.576-18.607-41.579-41.568V95.215a5.91 5.91 0 0 1 5.912-5.913",
+  },
+  {
+    // Main person: body
+    hex: "#7B83EB",
+    path: "M191.506 89.302H82.355c-6.173.153-11.056 5.276-10.913 11.449v68.697c-.862 37.044 28.445 67.785 65.488 68.692c37.043-.907 66.35-31.648 65.489-68.692v-68.697c.143-6.173-4.74-11.296-10.913-11.449",
+  },
+  {
+    // "T" tile (gradient flattened to solid)
+    hex: "#4D55BD",
+    path: "M10.913 53.581h109.15c6.028 0 10.914 4.886 10.914 10.913v109.151c0 6.027-4.886 10.913-10.913 10.913H10.913C4.886 184.558 0 179.672 0 173.645V64.495C0 58.466 4.886 53.58 10.913 53.58",
+  },
+  {
+    // "T" letterform
+    hex: "#FFFFFF",
+    path: "M94.208 95.125h-21.82v59.416H58.487V95.125H36.769V83.599h57.439z",
+  },
+];
+
+function MSTeamsIcon({ size, className }: { size: number; className: string }) {
+  return (
+    <svg
+      viewBox="0 0 256 239"
+      width={size}
+      height={size}
+      className={`shrink-0 ${className}`}
+      aria-hidden
+    >
+      <circle cx="223.256" cy="50.605" r="26.791" fill="#5059C9" />
+      <circle cx="139.907" cy="38.698" r="38.698" fill="#7B83EB" />
+      {MSTEAMS_PATHS.map((part, i) => (
+        <path key={i} fill={part.hex} d={part.path} />
+      ))}
+    </svg>
+  );
+}
+
+/**
+ * NapCat (personal QQ bridge) has no standard brand vector — render
+ * Lucide's cat mark on a QQ-blue badge, visually distinct from the QQ
+ * penguin silhouette.
+ */
+function NapCatIcon({ size, className }: { size: number; className: string }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex shrink-0 select-none items-center justify-center rounded-[5px] text-white ${className}`}
+      style={{ width: size, height: size, background: "#1EBAFC" }}
+    >
+      <Cat width={size * 0.72} height={size * 0.72} strokeWidth={2.25} />
+    </span>
+  );
+}
+
 /** DingTalk's wing mark — Ant Design Icons `dingtalk`. */
 function DingTalkIcon({ size, className }: { size: number; className: string }) {
   return (
@@ -159,6 +231,8 @@ export default function ChannelIcon({
   if (key === "feishu") return <FeishuIcon size={size} className={className} />;
   if (key === "dingtalk") return <DingTalkIcon size={size} className={className} />;
   if (key === "wecom") return <WeComIcon size={size} className={className} />;
+  if (key === "msteams") return <MSTeamsIcon size={size} className={className} />;
+  if (key === "napcat") return <NapCatIcon size={size} className={className} />;
   const brand = BRAND_PATHS[key];
   if (brand) {
     return (

@@ -145,7 +145,7 @@ deeptutor/services/
 - **Web routes:** All pages reorganized under `(workspace)/` and `(utility)/`. Legacy pages (`/solver`, `/question`, `/research`, `/ideagen`, `/notebook`, `/history`) removed.
 - **RAG pipeline:** Only LlamaIndex available. LightRAG and RAG-Anything temporarily removed.
 - **Data layout:** Runtime data centered under `data/user/workspace/...`.
-- **Dependencies:** Split into layered requirements: `cli.txt`, `server.txt`, `dev.txt`, `math-animator.txt`, `tutorbot.txt`.
+- **Dependencies:** Split into layered requirements: `cli.txt`, `server.txt`, `dev.txt`, `math-animator.txt`, and the channel dependency mirror.
 
 ---
 

@@ -1,24 +1,48 @@
-"""Tests for LLM/RAG timeout and per-stage degradation."""
+"""Tests for the LLM bounded-retry + per-stage graceful-degradation logic.
 
-import asyncio
+The Mastery Path capability funnels every model call through a single method,
+``MasteryPathCapability._call_llm(system, user, progress, stage_name, stream,
+*, timeout=None)``. That method owns the resilience policy:
+
+  * up to ``_STAGE_MAX_FAILURES`` attempts per turn, then return ``None``;
+  * a cross-turn cumulative gate (``_STAGE_MAX_CUMULATIVE_FAILURES``) that skips
+    the call entirely once a stage has failed too often across turns;
+  * bookkeeping in ``stage_failure_counts`` / ``stage_failure_notes`` that a
+    successful call clears.
+
+Each stage handler degrades by branching on a ``None`` return. These tests
+exercise both halves: ``_call_llm`` itself (by patching the underlying
+``complete``) and each handler's ``None`` branch (by stubbing ``cap._call_llm``
+to return ``None`` directly).
+
+RAG was removed, so there is no longer any RAG-timeout path to test.
+"""
+
 from contextlib import asynccontextmanager
+import json
 from unittest.mock import AsyncMock
 
 import pytest
 
-from deeptutor.capabilities.guided_learning import GuidedLearningCapability
+from deeptutor.capabilities.mastery_path import MasteryPathCapability
 from deeptutor.learning.models import (
+    ErrorRecord,
+    ErrorType,
     KnowledgePoint,
     KnowledgeType,
     LearningModule,
     LearningProgress,
     LearningStage,
 )
+from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
 
 
 class FakeStream:
+    """Minimal StreamBus stand-in: records stage/content events and replays a
+    queued list of student inputs for ``wait_for_input``."""
+
     def __init__(self) -> None:
         self.events: list[tuple[str, str]] = []
         self.inputs: list[str] = []
@@ -39,340 +63,373 @@ class FakeStream:
             return val
         return ""
 
-
-def _make_capability() -> GuidedLearningCapability:
-    cap = GuidedLearningCapability.__new__(GuidedLearningCapability)
-    cap._store = LearningStore.__new__(LearningStore)
-    cap._store._root = None
-    cap._service = LearningService(cap._store)
-    cap._scheduler = None
-    cap._kb_name = None
-    cap._kb_base_dir = None
-    return cap
+    def content_texts(self) -> list[str]:
+        return [t for kind, t in self.events if kind == "content"]
 
 
-def _make_progress_with_module() -> LearningProgress:
-    progress = LearningProgress(book_id="book1")
+def _make_cap(tmp_path) -> MasteryPathCapability:
+    """A real capability wired to a tmp-path store/service/scheduler."""
+    store = LearningStore(root=tmp_path)
+    service = LearningService(store)
+    return MasteryPathCapability(
+        service=service, scheduler=SpacedRepetitionScheduler(), store=store
+    )
+
+
+def _progress_with_module() -> LearningProgress:
     kp = KnowledgePoint(id="kp1", name="Test KP", type=KnowledgeType.MEMORY, module_id="m1")
     mod = LearningModule(id="m1", name="Test Module", order=0, knowledge_points=[kp])
+    progress = LearningProgress(book_id="book1")
     progress.modules = [mod]
     progress.current_module_id = "m1"
+    progress.knowledge_types["kp1"] = KnowledgeType.MEMORY
     progress.current_stage = LearningStage.EXPLAIN
     return progress
 
 
-# ── RAG timeout in _call_llm_impl ─────────────────────────────────────
+# ── _call_llm: bounded retry on failure ───────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_rag_timeout_does_not_block_llm(monkeypatch):
-    """RAG timeout should not prevent the LLM call from proceeding."""
-    cap = _make_capability()
-    cap._RAG_TIMEOUT_SECONDS = 0.01
+async def test_call_llm_retries_then_returns_none_and_records_failure(tmp_path, monkeypatch):
+    """Every attempt raising should exhaust _STAGE_MAX_FAILURES retries, return
+    None, and record the failure count + note (no exception escapes)."""
+    cap = _make_cap(tmp_path)
+    import deeptutor.capabilities.mastery_path as mp_mod
 
-    async def _slow_rag(query):
-        await asyncio.sleep(10)
-        return ("context", "")
+    complete_mock = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+    monkeypatch.setattr(mp_mod, "complete", complete_mock)
 
-    cap._retrieve_context = _slow_rag
-
-    import deeptutor.capabilities.guided_learning as gl_mod
-    monkeypatch.setattr(gl_mod, "complete", AsyncMock(return_value="LLM response"))
-    response, rag_error = await cap._call_llm_impl("system", "user")
-
-    assert response == "LLM response"
-    assert "timed out" in rag_error.lower()
-
-
-# ── Degradation: retries then skips ───────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_degradation_retries_then_skips_explain():
-    """When LLM always fails, explain stage should skip KP via _advance_after_kp."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.EXPLAIN
+    progress = _progress_with_module()
     stream = FakeStream()
 
-    await cap._run_explain(progress, None, stream)
+    result = await cap._call_llm("system", "user", progress, "explain", stream)
 
-    # Should have advanced (either to FEYNMAN_CHECK or next KP via _advance_after_kp)
-    assert progress.current_stage != LearningStage.EXPLAIN
-    # stage_failure_counts should be incremented
-    assert progress.stage_failure_counts.get("explain", 0) >= 1
-    assert "explain" in progress.stage_failure_notes
+    assert result is None
+    # One increment per failed attempt.
+    assert complete_mock.call_count == MasteryPathCapability._STAGE_MAX_FAILURES
+    assert progress.stage_failure_counts["explain"] == MasteryPathCapability._STAGE_MAX_FAILURES
+    assert progress.stage_failure_notes["explain"]  # non-empty note recorded
+    # The exhausted-retries degradation message is streamed.
+    assert any("暂时不可用" in t for t in stream.content_texts())
 
 
 @pytest.mark.asyncio
-async def test_degradation_retries_then_skips_pretest():
-    """When LLM always fails, pretest should skip to EXPLAIN."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.PRETEST
+async def test_call_llm_success_clears_prior_failures(tmp_path, monkeypatch):
+    """A successful call clears any prior failure count + note for the stage."""
+    cap = _make_cap(tmp_path)
+    import deeptutor.capabilities.mastery_path as mp_mod
+
+    monkeypatch.setattr(mp_mod, "complete", AsyncMock(return_value="ok response"))
+
+    progress = _progress_with_module()
+    progress.stage_failure_counts["explain"] = 2
+    progress.stage_failure_notes["explain"] = "previous timeout"
     stream = FakeStream()
 
-    await cap._run_pretest(progress, None, stream)
+    result = await cap._call_llm("system", "user", progress, "explain", stream)
 
-    assert progress.current_stage == LearningStage.EXPLAIN
-    assert progress.stage_failure_counts.get("pretest", 0) >= 1
+    assert result == "ok response"
+    assert "explain" not in progress.stage_failure_counts
+    assert "explain" not in progress.stage_failure_notes
 
 
 @pytest.mark.asyncio
-async def test_degradation_retries_then_skips_practice_quiz():
-    """When LLM always fails, practice_quiz should advance to ERROR_DIAGNOSIS."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.PRACTICE_QUIZ
+async def test_call_llm_cumulative_gate_skips_without_calling(tmp_path, monkeypatch):
+    """Once cumulative failures hit the threshold, _call_llm returns None
+    without calling the model and streams the 'multiple failures' message."""
+    cap = _make_cap(tmp_path)
+    import deeptutor.capabilities.mastery_path as mp_mod
+
+    complete_mock = AsyncMock(return_value="should not be called")
+    monkeypatch.setattr(mp_mod, "complete", complete_mock)
+
+    progress = _progress_with_module()
+    progress.stage_failure_counts["explain"] = MasteryPathCapability._STAGE_MAX_CUMULATIVE_FAILURES
     stream = FakeStream()
 
-    await cap._run_practice_quiz(progress, None, stream)
+    result = await cap._call_llm("system", "user", progress, "explain", stream)
 
-    assert progress.current_stage == LearningStage.ERROR_DIAGNOSIS
-    assert progress.stage_failure_counts.get("practice_quiz", 0) >= 1
-
-
-@pytest.mark.asyncio
-async def test_degradation_retries_then_skips_module_test():
-    """When LLM always fails, module_test should advance to REVIEW."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    cap._scheduler = type("S", (), {
-        "get_initial_state": lambda s, t: None,
-        "build_review_queue": lambda s, p: [],
-    })()
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.MODULE_TEST
-    stream = FakeStream()
-
-    await cap._run_module_test(progress, None, stream)
-
-    assert progress.current_stage == LearningStage.REVIEW
-    assert progress.stage_failure_counts.get("module_test", 0) >= 1
-
-
-# ── Feynman timeout saves unevaluated ─────────────────────────────────
+    assert result is None
+    complete_mock.assert_not_called()
+    assert any("多次失败" in t for t in stream.content_texts())
 
 
 @pytest.mark.asyncio
-async def test_feynman_timeout_saves_unevaluated():
-    """When LLM fails during feynman evaluation, user explanation should be preserved as unevaluated."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.FEYNMAN_CHECK
-    stream = FakeStream()
-    stream.inputs = ["My explanation of the concept"]
+async def test_call_llm_below_cumulative_gate_still_retries(tmp_path, monkeypatch):
+    """Below the cumulative gate, a flaky stage still attempts its retries and
+    accumulates further failures."""
+    cap = _make_cap(tmp_path)
+    import deeptutor.capabilities.mastery_path as mp_mod
 
-    await cap._run_feynman_check(progress, None, stream)
+    complete_mock = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+    monkeypatch.setattr(mp_mod, "complete", complete_mock)
 
-    # Should have advanced (either passed or retried)
-    assert progress.current_stage != LearningStage.FEYNMAN_CHECK
-    # The content should include "未评估" in the streamed output
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("未评估" in t for t in content_texts)
-    assert progress.stage_failure_counts.get("feynman_check", 0) >= 1
-
-
-# ── Explain timeout skips KP, not feynman_check ───────────────────────
-
-
-@pytest.mark.asyncio
-async def test_explain_timeout_skips_kp_not_feynman():
-    """Explain timeout should advance via _advance_after_kp, not directly to feynman_check."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.EXPLAIN
-    stream = FakeStream()
-
-    await cap._run_explain(progress, None, stream)
-
-    # With 1 KP, _advance_after_kp should go to PRACTICE_QUIZ (not FEYNMAN_CHECK)
-    assert progress.current_stage == LearningStage.PRACTICE_QUIZ
-
-
-# ── Metacognitive/Plan/Review static fallback ─────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_metacognitive_fallback_text():
-    """When LLM fails, metacognitive should show fallback text and advance."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.METACOGNITIVE_INTRO
-    stream = FakeStream()
-
-    await cap._run_metacognitive_intro(progress, None, stream)
-
-    assert progress.current_stage == LearningStage.PLAN
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("失败" in t for t in content_texts)
-
-
-@pytest.mark.asyncio
-async def test_plan_fallback_text():
-    """When LLM fails, plan should show fallback text and advance."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.PLAN
-    stream = FakeStream()
-
-    await cap._run_plan(progress, None, stream)
-
-    assert progress.current_stage == LearningStage.PRETEST
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("失败" in t for t in content_texts)
-
-
-@pytest.mark.asyncio
-async def test_review_fallback_text():
-    """When LLM fails, review should show fallback text and advance."""
-    cap = _make_capability()
-    cap._scheduler = type("S", (), {"get_initial_state": lambda s, t: None, "build_review_queue": lambda s, p: []})()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.REVIEW
-    stream = FakeStream()
-
-    await cap._run_review(progress, None, stream)
-
-    assert progress.current_stage in (LearningStage.PRETEST, LearningStage.COMPLETED)
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("失败" in t for t in content_texts)
-
-
-# ── Error diagnosis records failure count ──────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_error_diagnosis_records_failure_count():
-    """Error diagnosis should record stage_failure_counts on timeout."""
-    from deeptutor.learning.models import ErrorRecord, ErrorType
-
-    cap = _make_capability()
-    cap._ERROR_DIAGNOSIS_TIMEOUT_SECONDS = 0.01
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.ERROR_DIAGNOSIS
-    progress.error_records = [
-        ErrorRecord(id="er1", question_id="q1", knowledge_point_id="kp1", module_id="m1",
-                    error_type=ErrorType.APPLICATION_ERROR, status="active")
-    ]
-    stream = FakeStream()
-
-    await cap._run_error_diagnosis(progress, None, stream)
-
-    assert progress.current_stage == LearningStage.MODULE_TEST
-    assert progress.stage_failure_counts.get("error_diagnosis", 0) >= 1
-    assert "error_diagnosis" in progress.stage_failure_notes
-
-
-# ── Cross-turn cumulative failure gate ────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_cumulative_failure_skips_stage():
-    """When cumulative failures reach threshold, stage should skip without LLM call."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(return_value="should not be called")
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.EXPLAIN
-    progress.stage_failure_counts["explain"] = 4  # at threshold
-    stream = FakeStream()
-
-    await cap._run_explain(progress, None, stream)
-
-    # Should skip without calling LLM
-    cap._call_llm.assert_not_called()
-    # Should show "多次失败" message
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("多次失败" in t for t in content_texts)
-    # Should advance stage
-    assert progress.current_stage != LearningStage.EXPLAIN
-
-
-@pytest.mark.asyncio
-async def test_cumulative_failure_below_threshold_retries():
-    """When cumulative failures are below threshold, normal retry should proceed."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.EXPLAIN
+    progress = _progress_with_module()
     progress.stage_failure_counts["explain"] = 2  # below threshold of 4
     stream = FakeStream()
 
-    await cap._run_explain(progress, None, stream)
+    result = await cap._call_llm("system", "user", progress, "explain", stream)
 
-    # Should have attempted LLM calls (retries happened)
-    assert cap._call_llm.call_count >= 1
-    # Failure count should have increased
+    assert result is None
+    assert complete_mock.call_count == MasteryPathCapability._STAGE_MAX_FAILURES
     assert progress.stage_failure_counts["explain"] > 2
 
 
-# ── Feynman explanation persistence ───────────────────────────────────
+@pytest.mark.asyncio
+async def test_call_llm_timeout_counts_as_failure(tmp_path, monkeypatch):
+    """A model call that exceeds the per-call timeout is treated as a failure
+    and folds into the retry/skip bookkeeping."""
+    import asyncio
+
+    cap = _make_cap(tmp_path)
+    import deeptutor.capabilities.mastery_path as mp_mod
+
+    async def _slow(*args, **kwargs):
+        await asyncio.sleep(10)
+        return "too late"
+
+    monkeypatch.setattr(mp_mod, "complete", _slow)
+
+    progress = _progress_with_module()
+    stream = FakeStream()
+
+    # Tiny timeout so the wait_for fires immediately.
+    result = await cap._call_llm("system", "user", progress, "diagnostic", stream, timeout=0.01)
+
+    assert result is None
+    assert progress.stage_failure_counts["diagnostic"] == MasteryPathCapability._STAGE_MAX_FAILURES
+
+
+# ── Stage handlers degrade on a None LLM result ────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_feynman_failure_persists_explanation():
-    """When LLM fails, user explanation should be saved to feynman_explanations."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
-    progress = _make_progress_with_module()
+async def test_explain_skip_advances_after_kp(tmp_path):
+    """When EXPLAIN's LLM call is skipped (None), the handler advances via
+    _advance_after_kp rather than to FEYNMAN_CHECK. With a single KP that lands
+    on PRACTICE."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.EXPLAIN
+    stream = FakeStream()
+
+    await cap._run_explain(progress, stream)
+
+    # Single KP -> _advance_after_kp goes to PRACTICE, not FEYNMAN_CHECK.
+    assert progress.current_stage == LearningStage.PRACTICE
+
+
+@pytest.mark.asyncio
+async def test_practice_skip_advances_to_error_diagnosis(tmp_path):
+    """When PRACTICE's LLM call is skipped (None), advance straight to
+    ERROR_DIAGNOSIS without running a quiz."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.PRACTICE
+    stream = FakeStream()
+
+    await cap._run_practice(progress, stream)
+
+    assert progress.current_stage == LearningStage.ERROR_DIAGNOSIS
+    # No quiz ran, so no attempts were recorded.
+    assert progress.quiz_attempts == []
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_skip_sets_empty_result_and_advances(tmp_path):
+    """When DIAGNOSTIC's LLM call is skipped (None), an empty DiagnosticResult
+    is stored and the stage advances to EXPLAIN."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.DIAGNOSTIC
+    stream = FakeStream()
+
+    await cap._run_diagnostic(progress, stream)
+
+    assert progress.current_stage == LearningStage.EXPLAIN
+    assert progress.diagnostic is not None
+    assert progress.diagnostic.total_questions == 0
+    assert progress.diagnostic.correct_count == 0
+
+
+@pytest.mark.asyncio
+async def test_feynman_skip_persists_unevaluated_explanation(tmp_path):
+    """When FEYNMAN_CHECK's LLM judge is skipped (None) and the student gave a
+    non-blank explanation, the explanation is persisted as unevaluated and the
+    '未评估' feedback is streamed."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
     progress.current_stage = LearningStage.FEYNMAN_CHECK
     stream = FakeStream()
     stream.inputs = ["My explanation of the concept"]
 
-    await cap._run_feynman_check(progress, None, stream)
+    await cap._run_feynman_check(progress, stream)
 
-    # User explanation should be persisted
+    # The unevaluated explanation is preserved for next time.
     assert progress.feynman_explanations.get("kp1") == "My explanation of the concept"
-    # Should show "未评估"
-    content_texts = [t for _, t in stream.events if _ == "content"]
-    assert any("未评估" in t for t in content_texts)
+    assert any("未评估" in t for t in stream.content_texts())
+    # A skipped judge is a non-pass: it counts as a retry, then advances.
+    assert progress.current_stage != LearningStage.FEYNMAN_CHECK
 
 
 @pytest.mark.asyncio
-async def test_feynman_success_clears_explanation():
-    """When LLM evaluation succeeds, feynman_explanations entry should be cleared."""
-    cap = _make_capability()
-    import json as _json
-    success_result = _json.dumps({"passed": True, "feedback": "很好", "gap": ""})
-    cap._call_llm = AsyncMock(return_value=success_result)
-    progress = _make_progress_with_module()
+async def test_feynman_blank_skips_judge_and_advances(tmp_path):
+    """A blank explanation short-circuits FEYNMAN_CHECK: no LLM judge, advance
+    via _advance_after_kp."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value="should not be called")
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.FEYNMAN_CHECK
+    stream = FakeStream()
+    stream.inputs = [""]  # blank
+
+    await cap._run_feynman_check(progress, stream)
+
+    cap._call_llm.assert_not_called()
+    # Single KP -> _advance_after_kp -> PRACTICE.
+    assert progress.current_stage == LearningStage.PRACTICE
+
+
+@pytest.mark.asyncio
+async def test_feynman_pass_clears_explanation_and_seeds_mastery(tmp_path):
+    """A passing judge clears any prior unevaluated explanation and seeds
+    mastery at the Feynman pass floor."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(
+        return_value=json.dumps({"passed": True, "feedback": "很好", "gap": ""})
+    )
+    progress = _progress_with_module()
     progress.current_stage = LearningStage.FEYNMAN_CHECK
     progress.feynman_explanations["kp1"] = "previous unevaluated explanation"
     stream = FakeStream()
     stream.inputs = ["My explanation"]
 
-    await cap._run_feynman_check(progress, None, stream)
+    await cap._run_feynman_check(progress, stream)
 
-    # Should have cleared the previous unevaluated explanation
     assert "kp1" not in progress.feynman_explanations
-
-
-# ── Success clears stage failure count ────────────────────────────────
+    assert progress.mastery_levels["kp1"] == pytest.approx(
+        MasteryPathCapability._FEYNMAN_PASS_MASTERY
+    )
+    # Single KP, passed -> _advance_after_kp -> PRACTICE.
+    assert progress.current_stage == LearningStage.PRACTICE
 
 
 @pytest.mark.asyncio
-async def test_success_clears_stage_failure_count():
-    """When LLM succeeds after prior failures, stage failure counts should be cleared."""
-    cap = _make_capability()
-    cap._call_llm = AsyncMock(return_value="success response")
-    progress = _make_progress_with_module()
-    progress.current_stage = LearningStage.EXPLAIN
-    progress.stage_failure_counts["explain"] = 2
-    progress.stage_failure_notes["explain"] = "previous timeout"
+async def test_error_diagnosis_skip_marks_records_unavailable(tmp_path):
+    """When ERROR_DIAGNOSIS's LLM call is skipped (None), each active record is
+    annotated 'error_diagnosis_unavailable' and the stage advances to REVIEW."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.ERROR_DIAGNOSIS
+    progress.error_records = [
+        ErrorRecord(
+            id="er1",
+            question_id="q1",
+            knowledge_point_id="kp1",
+            module_id="m1",
+            error_type=ErrorType.APPLICATION_ERROR,
+            status="active",
+        )
+    ]
     stream = FakeStream()
 
-    await cap._run_explain(progress, None, stream)
+    await cap._run_error_diagnosis(progress, stream)
 
-    # Failure count and note should be cleared after success
-    assert "explain" not in progress.stage_failure_counts
-    assert "explain" not in progress.stage_failure_notes
+    assert progress.current_stage == LearningStage.REVIEW
+    assert progress.error_records[0].ai_confirmation == "error_diagnosis_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_error_diagnosis_passes_timeout_through(tmp_path, monkeypatch):
+    """ERROR_DIAGNOSIS uses the dedicated, shorter timeout when it calls the
+    model."""
+    cap = _make_cap(tmp_path)
+    captured: dict = {}
+
+    async def _spy(system, user, progress, stage_name, stream, *, timeout=None):
+        captured["timeout"] = timeout
+        captured["stage_name"] = stage_name
+        return None
+
+    cap._call_llm = _spy
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.ERROR_DIAGNOSIS
+    progress.error_records = [
+        ErrorRecord(
+            id="er1",
+            question_id="q1",
+            knowledge_point_id="kp1",
+            module_id="m1",
+            error_type=ErrorType.APPLICATION_ERROR,
+            status="active",
+        )
+    ]
+    stream = FakeStream()
+
+    await cap._run_error_diagnosis(progress, stream)
+
+    assert captured["stage_name"] == "error_diagnosis"
+    assert captured["timeout"] == MasteryPathCapability._ERROR_DIAGNOSIS_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_error_diagnosis_no_active_records_skips_llm(tmp_path):
+    """With no active/retrying error records, ERROR_DIAGNOSIS makes no LLM call
+    and advances to REVIEW."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value="should not be called")
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.ERROR_DIAGNOSIS
+    progress.error_records = []
+    stream = FakeStream()
+
+    await cap._run_error_diagnosis(progress, stream)
+
+    cap._call_llm.assert_not_called()
+    assert progress.current_stage == LearningStage.REVIEW
+
+
+@pytest.mark.asyncio
+async def test_review_skip_uses_static_fallback_text(tmp_path):
+    """When REVIEW's LLM call is skipped (None), a static fallback review prompt
+    is streamed and the stage advances (COMPLETED for the last module)."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    progress.current_stage = LearningStage.REVIEW
+    stream = FakeStream()
+
+    await cap._run_review(progress, stream)
+
+    assert progress.current_stage == LearningStage.COMPLETED
+    assert any("请回顾" in t for t in stream.content_texts())
+    # The review queue/states were still initialized despite the LLM skip.
+    assert "kp1" in progress.repetition_states
+
+
+@pytest.mark.asyncio
+async def test_review_advances_to_next_module_explain(tmp_path):
+    """When a next module exists, REVIEW loops back to EXPLAIN on the next
+    module even when the LLM call is skipped."""
+    cap = _make_cap(tmp_path)
+    cap._call_llm = AsyncMock(return_value=None)
+    progress = _progress_with_module()
+    kp2 = KnowledgePoint(id="kp2", name="Second KP", type=KnowledgeType.MEMORY, module_id="m2")
+    progress.modules.append(
+        LearningModule(id="m2", name="Module 2", order=1, knowledge_points=[kp2])
+    )
+    progress.knowledge_types["kp2"] = KnowledgeType.MEMORY
+    progress.current_stage = LearningStage.REVIEW
+    stream = FakeStream()
+
+    await cap._run_review(progress, stream)
+
+    assert progress.current_stage == LearningStage.EXPLAIN
+    assert progress.current_module_id == "m2"
+    assert progress.current_kp_index == 0

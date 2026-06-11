@@ -18,6 +18,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from deeptutor.core.i18n import t
+from deeptutor.core.metadata_i18n import tool_description_i18n
 from deeptutor.logging import (
     ProcessLogEvent,
     bind_log_context,
@@ -55,7 +57,8 @@ class CapabilityExecuteRequest(BaseModel):
     language: str = "en"
     config: dict[str, Any] = Field(default_factory=dict)
     attachments: list[dict[str, Any]] = Field(default_factory=list)
-    bot_id: str | None = None
+    # ``bot_id`` is the legacy TutorBot field name; it now addresses a partner.
+    partner_id: str | None = Field(default=None, alias="bot_id")
     session_id: str | None = None
     chat_id: str | None = None
     llm_selection: dict[str, str] | None = Field(default=None, alias="llmSelection")
@@ -71,6 +74,7 @@ async def list_plugins():
         {
             "name": definition.name,
             "description": definition.description,
+            "description_i18n": tool_description_i18n(definition.name, definition.description),
             "parameters": [
                 {
                     "name": parameter.name,
@@ -113,7 +117,7 @@ async def execute_tool(tool_name: str, body: ToolExecuteRequest):
     registry = get_tool_registry()
     tool = registry.get(tool_name)
     if not tool:
-        raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+        raise HTTPException(status_code=404, detail=t("api.tool_not_found", name=tool_name))
 
     try:
         result = await tool.execute(**body.params)
@@ -205,7 +209,7 @@ async def _execute_stream(tool_name: str, params: dict[str, Any]) -> AsyncGenera
     registry = get_tool_registry()
     tool = registry.get(tool_name)
     if not tool:
-        yield _sse("error", {"detail": f"Tool {tool_name!r} not found"})
+        yield _sse("error", {"detail": t("api.tool_not_found", name=tool_name)})
         return
 
     event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -289,19 +293,19 @@ async def _execute_capability_stream(
     body: CapabilityExecuteRequest,
 ) -> AsyncGenerator[str, None]:
     """Run a capability while streaming process logs, trace events, and the result."""
-    bot_id = (body.bot_id or "").strip()
-    if capability_name == "chat" and bot_id:
-        from deeptutor.api.routers.tutorbot import (
+    partner_id = (body.partner_id or "").strip()
+    if capability_name == "chat" and partner_id:
+        from deeptutor.api.routers.partners import (
             ChatMessageRequest,
-            _bot_chat_stream,
-            _ensure_running_bot,
+            _ensure_running_partner,
+            _partner_chat_stream,
         )
 
         if not body.content.strip():
             yield _sse("error", {"detail": "content is required"})
             return
         try:
-            await _ensure_running_bot(bot_id)
+            await _ensure_running_partner(partner_id)
         except HTTPException as exc:
             yield _sse("error", {"detail": exc.detail, "status_code": exc.status_code})
             return
@@ -311,7 +315,7 @@ async def _execute_capability_stream(
             chat_id=body.chat_id,
             llm_selection=body.llm_selection,
         )
-        async for chunk in _bot_chat_stream(bot_id, request):
+        async for chunk in _partner_chat_stream(partner_id, request):
             yield chunk
         return
 

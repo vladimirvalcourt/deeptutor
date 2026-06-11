@@ -12,8 +12,11 @@ from deeptutor.core.stream_bus import StreamBus
 class ChatCapability(BaseCapability):
     manifest = CapabilityManifest(
         name="chat",
-        description="Agentic chat with autonomous tool selection across enabled tools.",
-        stages=["thinking", "acting", "observing", "responding"],
+        description=(
+            "Agentic chat: an exploring agent loop with tools, followed by "
+            "a respond stage that streams the answer."
+        ),
+        stages=["exploring", "responding"],
         tools_used=CHAT_OPTIONAL_TOOLS,
         cli_aliases=["chat"],
         request_schema=get_capability_request_schema("chat"),

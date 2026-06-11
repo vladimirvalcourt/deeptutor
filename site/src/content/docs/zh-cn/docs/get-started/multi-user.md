@@ -28,40 +28,47 @@ deeptutor start
 
 - **完整的设置页面**，在 `/settings` —— 管理 LLM / embedding / 搜索 provider、API key、模型 catalog，以及运行时 "Apply"。
 - **用户管理**，在 `/admin/users` —— 创建、提升、降级、删除账号。一旦有了第一个 admin，公开的 `/register` 端点会自动关闭；后续账号走 `POST /api/v1/auth/users`（admin-only）。
-- **授权编辑器** —— 对每个非 admin 用户，挑选他们可用的模型 profile、知识库和 skill。授权只带**逻辑 ID**；API key 永远不会越过授权边界。
-- **审计追踪** —— 每次授权变更和被授权资源的访问都会追加到 `multi-user/_system/audit/usage.jsonl`。
+- **授权编辑器** —— 对每个非 admin 用户，挑选他们可用的 LLM 模型、知识库和 skill，把系统工具（联网搜索、论文搜索……）和 MCP 工具收窄成白名单，也可以彻底关掉代码执行。工具白名单与 partner 配置同语义：*Default* 全部放行，*Custom* 是显式白名单。授权只带**逻辑 ID**；API key 永远不会越过授权边界。
+- **审计追踪** —— 每次授权变更和被授权资源的访问都会追加到 `data/system/audit/usage.jsonl`。
 
 ## 普通用户得到什么
 
-- **独立工作区**，在 `multi-user/<uid>/` 下 —— 自己的对话历史（`chat_history.db`）、记忆、笔记本和个人知识库。默认什么都不共享。
+- **独立工作区**，在 `data/users/<uid>/` 下 —— 自己的对话历史（`chat_history.db`）、记忆、笔记本和个人知识库。默认什么都不共享。
 - **只读访问** admin 分配的知识库和 skill，在他们自己的资源旁边以 "Assigned by admin" 徽章并列展示。
 - **删减版设置页面** —— 只展示主题、语言以及已授权模型的摘要。API key、base URL 和 provider endpoint 不会返回给非 admin 请求。
 - **作用域内的 LLM** —— 对话轮次通过 admin 分配的模型走。如果没有授权的 LLM，那一轮会被直接拒绝（不会偷偷 fallback 到 admin 的 key）。
+- **作用域内的工具** —— 输入框、`/settings/tools` 页面以及每一轮对话都只暴露授权白名单内的系统工具和 MCP 工具；代码执行在部署沙箱策略之上再尊重每用户开关。
 
 ## 工作区布局
 
+所有数据都在 `data/` 下 —— 挂载和备份只需要这一棵树：
+
 ```text
-multi-user/
-├── _system/
+data/
+├── user/                        # Admin 工作区（设置、API key、admin 任务）
+├── system/
 │   ├── auth/users.json          # 凭证哈希、角色
 │   ├── auth/auth_secret         # JWT 签名密钥（自动生成）
 │   ├── grants/<uid>.json        # 每个用户的资源授权（admin 管理）
 │   └── audit/usage.jsonl        # 审计追踪
-└── <uid>/
-    ├── user/
-    │   ├── chat_history.db
-    │   ├── settings/interface.json
-    │   └── workspace/{chat,co-writer,book,...}
-    ├── memory/
-    └── knowledge_bases/...
+├── users/<uid>/
+│   ├── user/
+│   │   ├── chat_history.db
+│   │   ├── settings/interface.json
+│   │   └── workspace/{chat,co-writer,book,...}
+│   ├── memory/
+│   └── knowledge_bases/...
+└── partners/<id>/               # Partner 工作区
 ```
+
+从 v1.5 之前的布局（与 `data/` 平级的 `multi-user/` 目录）升级的部署会在首次启动时自动迁移：`multi-user/_system` 移到 `data/system`，每个 `multi-user/<uid>` 移到 `data/users/<uid>`。
 
 ## 配置参考
 
 | 设置 | 必填 | 说明 |
 |------|------|------|
 | `data/user/settings/auth.json: enabled` | 是 | 设为 `true` 开启多用户 auth。默认 `false`（单用户模式 —— 各处都走 admin 路径）。 |
-| `multi-user/_system/auth/auth_secret` | 推荐 | JWT 签名密钥。首次带认证启动时，若缺失会自动生成。 |
+| `data/system/auth/auth_secret` | 推荐 | JWT 签名密钥。首次带认证启动时，若缺失会自动生成。 |
 | `data/user/settings/auth.json: token_expire_hours` | 否 | JWT 寿命；默认 `24`。 |
 | `data/user/settings/auth.json: username` / `password_hash` | 否 | 可选的 headless 单用户引导凭证。用浏览器注册时留空。 |
 | `data/user/settings/system.json` | 否 | `deeptutor start` 会从运行时设置推导前端 auth flag 和 API base。 |
@@ -78,7 +85,8 @@ multi-user/
 - ✅ 在 `auth.json` 里设 `cookie_secure: true`，让 session cookie 必须走 HTTPS
 - ✅ 把 DeepTutor 放在反向代理后面（Caddy、nginx、Traefik），用 TLS termination
 - ✅ 在 `system.json` 里设 `public_api_base`，让前端 bundle 知道去哪儿找后端
-- ✅ 定期备份 `multi-user/`
+- ✅ 定期备份 `data/` —— 账号、授权和所有工作区都在这一棵树下
+- ✅ Docker：保留 `docker-compose.yml` 里的 `./data:/app/data` 卷。沙箱 runner 刻意只挂工作区子树（`data/user/workspace`、`data/users`），永远不挂存放认证状态和 API key 的 `data/system`、`data/user/settings`
 
 ## Caddyfile 示例
 
@@ -115,7 +123,7 @@ deeptutor.example.com {
 
 ### 第一次登录能进但没有 admin 链接
 
-确认 `multi-user/_system/auth/users.json` 里第一个用户的 `"role": "admin"`。如果不是，手动改掉并重启。
+确认 `data/system/auth/users.json` 里第一个用户的 `"role": "admin"`。如果不是，手动改掉并重启。
 
 ### 重启后 `Cannot decode JWT`
 

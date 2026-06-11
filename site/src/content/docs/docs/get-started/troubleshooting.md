@@ -262,7 +262,7 @@ The gateway-specific SDK wasn't installed. The error message tells you which one
 
 ```bash
 # Generic
-pip install -e ".[tutorbot]"
+pip install -e ".[partners]"
 
 # Or one specific (rarely needed)
 pip install python-telegram-bot   # Telegram

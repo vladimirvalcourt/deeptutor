@@ -1,6 +1,6 @@
 <div align="center">
 
-<p align="center"><img src="assets/logo.png" alt="DeepTutor logo" height="56" style="vertical-align: middle;">&nbsp;<img src="assets/banner.png" alt="DeepTutor" height="48" style="vertical-align: middle;"></p>
+<p align="center"><img src="assets/figs/logo/logo.png" alt="DeepTutor logo" height="56" style="vertical-align: middle;">&nbsp;<img src="assets/figs/logo/banner.png" alt="DeepTutor" height="48" style="vertical-align: middle;"></p>
 
 # DeepTutor: Agent-Native Personalized Tutoring
 
@@ -34,7 +34,7 @@
 [![Feishu](https://img.shields.io/badge/Feishu-Group-00D4AA?style=flat-square&logo=feishu&logoColor=white)](./Communication.md)
 [![WeChat](https://img.shields.io/badge/WeChat-Group-07C160?style=flat-square&logo=wechat&logoColor=white)](https://github.com/HKUDS/DeepTutor/issues/78)
 
-[Features](#-key-features) · [Get Started](#-get-started) · [Explore](#-explore-deeptutor) · [TutorBot](#-tutorbot--persistent-autonomous-ai-tutors) · [CLI](#%EF%B8%8F-deeptutor-cli--agent-native-interface) · [Multi-User](#-multi-user--shared-deployments-with-per-user-workspaces) · [Community](#-community--ecosystem)
+[Features](#-key-features) · [Get Started](#-get-started) · [Explore](#-explore-deeptutor) · [CLI](#%EF%B8%8F-deeptutor-cli--agent-native-interface) · [Multi-User](#-multi-user--shared-deployments) · [Community](#-community--ecosystem)
 
 </div>
 
@@ -141,28 +141,25 @@
 
 > **[2025.12.29]** DeepTutor is officially released!
 
-
 ## ✨ Key Features
 
-**Work surfaces**
+DeepTutor is organized around an agent-native runtime: a shared ChatOrchestrator routes every turn into capabilities, a ToolRegistry exposes single-shot tools when the model needs them, and a CapabilityRegistry lets deeper workflows take over the turn when the task needs structure.
 
-- Chat — Chat, Solve, Quiz, Research, and Visualize share one session, knowledge base, and citation history, so you can escalate mid-conversation without losing context.
-- Co-Writer — split-view Markdown workspace where any selection can be rewritten, expanded, or shortened, optionally grounded by your KB or the web. Drafts save straight to notebooks.
-- Book Engine — a multi-agent pipeline compiles your materials into interactive "living books" with 13 block types: quizzes, flash cards, timelines, concept graphs, an embedded GeoGebra viewer, animations, and more. Pages are KB-fingerprinted, so drift is detectable.
+<div align="center">
+<img src="assets/figs/system/system%20architecture.png" alt="DeepTutor system architecture" width="900">
+</div>
 
-**Your library**
+**One learning workspace**
 
-- Knowledge Bases — versioned RAG-ready collections, end-to-end on LlamaIndex. Every (re-)index is tracked, comparable, and rollback-able.
-- Space — a personal review library bundling chat history, notebooks, question bank, and user-authored skills (`SKILL.md`) that switch DeepTutor's persona.
-- Three-layer memory — append-only L1 traces, L2 per-surface curated facts with citations, and L3 cross-surface synthesis. An inspectable workbench and a memory graph let you audit *why* DeepTutor knows what it knows.
+- **Chat as the default loop** — casual tutoring, source-grounded Q&A, Deep Solve, Deep Question, Deep Research, Visualize, and Auto Mode all share the same session context and source inventory.
+- **Learning surfaces that stay connected** — Co-Writer drafts, Book pages, Knowledge Bases, Space assets, and Memory are separate workspaces, but they feed the same agent runtime instead of becoming isolated apps.
+- **Partners for persistent companionship** — IM-connected companions now run on the same chat agent loop as the main product, with their own synthetic workspace and assigned library.
 
-**Extensibility & control**
+**Tools, memory, and control**
 
-- Composable tools — RAG, web search, code execution, reasoning, brainstorming, paper search, GeoGebra analysis, and chat helpers (`ask_user`, `web_fetch`, `write_note`, `list_notebook`, `github_query`). MCP servers plug in alongside built-ins.
-- Personal TutorBots — persistent, autonomous tutors, each with its own workspace, soul, skills, and channels (Telegram, Discord, Slack, Matrix, Zulip, …). Built on [nanobot](https://github.com/HKUDS/nanobot).
-- Unified settings — one draft / Apply workbench for appearance, models, embeddings, search, capabilities, memory, MCP servers, and tools, with shared per-call cost tracking.
-- Agent-native CLI — every capability, KB, session, and TutorBot is one command away; rich output for humans, structured JSON for agents. Hand any tool-using LLM the [`SKILL.md`](SKILL.md) and it can drive DeepTutor on its own.
-- Optional authentication — off by default; opt in for multi-user deployments with bcrypt + JWT, an admin dashboard, and an optional PocketBase / OAuth sidecar.
+- **Composable tools** — RAG, source reading, memory read/write, notebooks, URL fetch, GitHub lookup, ask-user pauses, sandboxed execution, and optional brainstorm/web/paper/reason tools can be mounted according to context and settings.
+- **Three-layer memory** — L1 traces, L2 per-surface summaries, and L3 cross-surface synthesis make personalization inspectable rather than hidden behind a black box.
+- **Unified settings and CLI** — model catalogs, embeddings, search, network, MCP servers, tools, capabilities, and deployment settings are editable from the web UI and scriptable from `deeptutor`.
 
 ---
 
@@ -222,11 +219,11 @@ python -m pip install --upgrade pip
 </details>
 
 <details>
-<summary><b>Optional install extras</b> — dev / tutorbot / matrix / math-animator</summary>
+<summary><b>Optional install extras</b> — dev / partners / matrix / math-animator</summary>
 
 ```bash
 pip install -e ".[dev]"             # tests/lint tools
-pip install -e ".[tutorbot]"        # TutorBot engine + channel SDKs
+pip install -e ".[partners]"        # Partner IM channel SDKs + MCP client
 pip install -e ".[matrix]"          # Matrix channel without E2EE/libolm
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; requires libolm
 pip install -e ".[math-animator]"   # Manim addon; requires LaTeX/ffmpeg/system libs
@@ -318,6 +315,27 @@ Docker Desktop (macOS/Windows) usually resolves `host.docker.internal` without `
 
 </details>
 
+### Code Execution Sandbox (office skills)
+
+The built-in office skills — **docx / pdf / pptx / xlsx** — work by having the
+model write a short Python script (`python-docx`, `reportlab`, `openpyxl`, …),
+run it through the `exec` / `code_execution` tools, and hand back a download URL.
+Those tools mount whenever a sandbox backend is active, which it is **by default**
+in every deployment shape:
+
+- **Local (Option 1 / 2) and Docker (Option 3, single container):** a restricted
+  subprocess sandbox runs the model's code (on the host locally, or inside the
+  container under Docker — the container being its own isolation boundary).
+- **docker-compose:** routed instead to a hardened, least-privileged **runner
+  sidecar** (`Dockerfile.runner`) via `DEEPTUTOR_SANDBOX_RUNNER_URL` — the
+  strongest posture, and preferred automatically when present.
+
+The subprocess sandbox is controlled by the `sandbox_allow_subprocess` setting in
+`data/user/settings/system.json` (default `true`). Running model-generated code
+on your host is a real trust decision — set it to `false` (or export
+`DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS=0`) to disable host-side execution, at the
+cost of the office skills no longer being able to produce files.
+
 ### Option 4 — CLI Only
 
 When you don't need the Web UI. The CLI-only package is installed from a source checkout, not from PyPI.
@@ -378,376 +396,185 @@ Project-root `.env` is **not** read as an application config file. For a minimal
 
 ## 📖 Explore DeepTutor
 
-The v1.4.0-beta refactor reorganises DeepTutor around **five core surfaces** — Chat, Co-Writer, Book, Knowledge, Space — plus a **three-layer Memory** that sits underneath all of them and a unified **Settings** workbench that exposes every knob. Capabilities (Solve / Quiz / Research / Visualize) and tools (RAG, web, code, reason, brainstorm, paper search, `ask_user`, `web_fetch`, `write_note`, `list_notebook`, `github_query`) compose freely on top.
+The README tour follows the product surfaces in the order you will most often meet them: Chat, Partner, Co-Writer, Book, Knowledge, Space, Memory, and Settings. The screenshots below come from the reorganized `assets/figs` tree; archived legacy images are intentionally not used here.
 
-### 💬 Chat — Unified Intelligent Workspace
-
-<div align="center">
-<img src="assets/figs/dt-chat.png" alt="Chat Workspace" width="800">
-</div>
-
-One thread, five modes, any tool. The capability picker lives in the composer; the same session, knowledge base, attachments, and references travel with you across modes — switch from a casual question into multi-agent solving, into a quiz, into a full research report, without losing context.
-
-<details>
-<summary><b>What each mode does & what it's built on</b></summary>
-
-| Mode | What it does | Built on |
-|:---|:---|:---|
-| **Chat** | Flexible conversation with any tool; pick from RAG, web search, code execution, deep reasoning, brainstorming, paper search, GeoGebra analysis. | LlamaIndex-backed RAG + tool registry |
-| **Solve** | Multi-step plan → investigate → solve → verify, with precise source citations. | Agentic engine (`deep_solve`) |
-| **Quiz** | Auto-validated question generation grounded in your KB; spawns a follow-up chat composer per question. | Agentic engine (`deep_question`) |
-| **Research** | Decomposes a topic into subtopics, dispatches parallel agents across RAG / web / arXiv, and produces a cited report with iterative append-mode revisions. | Rebuilt `pipeline.py` (~45% smaller, citations + iterative reporting preserved) |
-| **Visualize** | Generate SVG diagrams, Chart.js charts, Mermaid graphs, interactive HTML pages, **or** Manim videos / storyboards — the analyzer picks the right `render_type`. | Visualize pipeline (Animator merged in) |
-
-</details>
-
-**New chat tools** shipped with the refactor: `ask_user` (asks a structured clarifying question mid-turn), `web_fetch` (pulls a specific URL into context), `write_note` / `list_notebook` (saves and lists notebook records from the chat surface), and `github_query` (issue / PR / repo lookups). Tools stay **decoupled from workflows** — every mode lets you opt tools in or out per turn.
-
-A session also carries a **cumulative source inventory** across turns, so citations from earlier RAG / web hits remain reusable later in the same conversation.
-
-### ✍️ Co-Writer — Multi-Document AI Writing Workspace
+### 💬 Chat — The Agent Loop You Actually Use
 
 <div align="center">
-<img src="assets/figs/dt-cowriter.png" alt="Co-Writer" width="800">
+<img src="assets/figs/webui/chat.png" alt="DeepTutor chat workspace" width="900">
 </div>
 
-Co-Writer is a split-view Markdown workbench (raw editor on the left, live preview on the right) for notes, reports, tutorials, and AI-assisted drafts. Each document lives in its own workspace with autosave, downloadable Markdown, and one-click **Save to Notebook**.
-
-Select any text and choose **Rewrite**, **Expand**, or **Shorten** — every action runs as a tracked agent edit that can optionally pull from a knowledge base or the web. Co-Writer renders standard Markdown / CommonMark / GFM (tables, code, math, flowcharts, sequence diagrams), supports a HTML tag escape hatch (`<sub>`, `<sup>`, `<abbr>`, `<mark>`), and ships a starter template tuned for DeepTutor product docs and learning notes.
-
-### 📖 Book Engine — Interactive "Living Books"
+Chat is the default capability and the place where most work begins. A single thread can talk normally, call tools, ground itself in selected knowledge bases, read attachments, write notebook records, and continue with the same source inventory across turns.
 
 <div align="center">
-<img src="assets/figs/dt-book.png" alt="Book Engine" width="800">
+<img src="assets/figs/system/chat-agent-loop.png" alt="DeepTutor chat agent loop" width="900">
 </div>
 
-Give DeepTutor a topic, point it at your knowledge base, and it produces a structured, interactive book — not a static export, but a living document you can read, quiz yourself on, and discuss in context.
+The current loop is deliberately simple: the model thinks in rounds, calls tools when useful, observes the tool results, and finishes when it has enough evidence. User-toggleable tools are `brainstorm`, `web_search`, `paper_search`, and `reason`; contextual tools such as `rag`, `read_source`, `read_memory`, `write_memory`, `read_skill`, `load_tools`, `exec`, `web_fetch`, `ask_user`, `list_notebook`, `write_note`, and `github` mount when the turn has the right context.
 
-Behind the scenes, a multi-agent pipeline handles the heavy lifting: proposing an outline, retrieving relevant sources from your KB, synthesising a chapter tree, planning each page, and compiling every block. You stay in control — review the proposal, reorder chapters, and chat alongside any page.
+Chat is also the launch point for deeper capabilities: `deep_solve` for worked reasoning, `deep_question` for question generation, `deep_research` for cited reports, `visualize` and `math_animator` for visual outputs, `auto` for routing, and `mastery_path` for learning-plan flows.
 
-Pages are assembled from 13 block types — text, callout, quiz, flash cards, code, figure, deep dive, animation, interactive demo (now including a **GeoGebra viewer**), timeline, concept graph, section, and user note — each rendered with its own interactive component. Book pages are fingerprinted against their source KB; `deeptutor book health` reports drift and `deeptutor book refresh-fingerprints` clears stale pages when sources change.
-
-### 📚 Knowledge Bases — RAG-Ready Document Libraries
+### 🤝 Partner — Persistent Companions on the Same Brain
 
 <div align="center">
-<img src="assets/figs/dt-kb.png" alt="Knowledge Bases" width="800">
+<img src="assets/figs/webui/partners.png" alt="DeepTutor partners workspace" width="900">
 </div>
 
-A dedicated workspace for the document collections that power RAG. Each knowledge base has four tabs:
-
-- **Files** — Browse uploaded sources, preview PDFs inline, and see per-file size / status.
-- **Add documents** — Drop in PDFs, Office files (DOCX / XLSX / PPTX), Markdown, plain text, and a wide range of code / data file types. Documents are routed through the appropriate extractor automatically.
-- **Index versions** — Every (re-)index is a tracked version. Roll back to an earlier index, compare embedding models, or inspect chunking stats without losing the previous build.
-- **Settings** — Pick the embedding provider / model, chunking parameters, and reranker for the KB. Defaults are inherited from your global LLM and embedding profiles.
-
-Indexing is built on **LlamaIndex** end-to-end (the previous dual-pipeline split was consolidated in the v1.4 refactor), with retry-safe re-index, embedding-mismatch detection, and resilient handling of corrupt persisted vectors.
-
-### 🌐 Space — Your Personal Learning Library
+Partners replace the older TutorBot engine with a cleaner model: every inbound web or IM message becomes a normal ChatOrchestrator turn inside a partner-scoped workspace. There is no separate bot brain to keep in sync.
 
 <div align="center">
-<img src="assets/figs/dt-space.png" alt="Space" width="800">
+<img src="assets/figs/system/partners-architecture.png" alt="DeepTutor partners architecture" width="900">
 </div>
 
-Space is the **read / review** counterpart to the active surfaces. Where Chat / Co-Writer / Book are where you *produce*, Space is where everything you produce lives, searchable and replayable.
-
-- **Chat History** — Every conversation across every mode, with title-rename, delete, and resume; deleting individual turns is supported on every entry point.
-- **Notebooks** — Save outputs from Chat, Research, and Co-Writer into categorised, colour-coded notebooks; each record links back to the originating session and surface.
-- **Question Bank** — Every auto-generated quiz question, bookmarkable and @-mention-able in chat to reason over past performance.
-- **Skills** — User-authored `SKILL.md` files that define teaching personas (name, description, triggers, body). When active, a skill is injected into the chat system prompt — turning DeepTutor into a Socratic tutor, a research assistant, or any role you design.
-
-### 🧠 Memory — Three-Layer Architecture
+Each partner has a `SOUL.md`, model selection, channels, tool policy, and assigned library. Knowledge bases, skills, and notebooks are copied into `data/partners/<id>/workspace/`, so the same RAG, skill, notebook, and memory tools work without special cases.
 
 <div align="center">
-<img src="assets/figs/dt-memory.png" alt="Memory Workbench" width="800">
+<img src="assets/figs/webui/partners02.png" alt="DeepTutor partner detail view" width="900">
 </div>
 
-DeepTutor's memory is now a **three-layer pipeline** with an inspectable workbench at `/memory`. The two-file v1 `SUMMARY.md` / `PROFILE.md` model is gone; everything is migrated into the new layout on first boot.
+The channel layer is schema-driven and can connect to IM platforms such as Feishu, Telegram, Slack, DingTalk, QQ/Napcat, WeCom, WhatsApp, Zulip, Matrix, and Microsoft Teams depending on installed extras and configured credentials.
 
-<details>
-<summary><b>L1 / L2 / L3 — role and on-disk layout</b></summary>
+### ✍️ Co-Writer — Selection-Aware Markdown Drafting
 
-| Layer | Role | Storage |
-|:---|:---|:---|
-| **L1 · Workspace mirror** (LIVE) | Append-only trace of every interaction, per surface, per day. The lossless record of what actually happened. | `trace/<surface>/<YYYY-MM-DD>.jsonl` |
-| **L2 · Per-surface summaries** (CURATED) | Surface-specific facts extracted by the consolidator. Each fact carries footnote citations back to L1 traces. Supports per-doc **Update / Audit / Dedup** runs. | `L2/<surface>.md` |
-| **L3 · Cross-surface knowledge** (SYNTHESIS) | Cross-surface synthesis: your `profile`, `recent` timeline, `scope` of knowledge, and `preferences`. Hedged claims, each backed by L2 evidence. | `L3/<recent\|profile\|scope\|preferences>.md` |
+Co-Writer is a split-view Markdown workspace for reports, tutorials, notes, and long-form learning artifacts. Documents autosave, render a live preview, and can be saved back into notebooks when the draft becomes reusable context.
 
-</details>
+Select text and ask DeepTutor to rewrite, expand, or shorten it. The edit agent keeps a trace of tool calls and can ground an edit in a knowledge base or web evidence, so Co-Writer behaves more like an editor with retrieval than a detached text box.
 
-Seven surfaces feed the pipeline: **chat, notebook, quiz, kb, book, tutorbot, cowriter**. The consolidator is LLM-driven and runs asynchronously (`POST /memory/runs/start`) — you can fire it from the workbench, watch L1 → L2 → L3 propagate, and edit any layer by hand.
+### 📖 Book — Living Books from Your Materials
+
+<p align="center">
+<img src="assets/figs/webui/book01.png" alt="DeepTutor book reading view" width="31%">
+&nbsp;
+<img src="assets/figs/webui/book02.png" alt="DeepTutor book interactive block view" width="31%">
+&nbsp;
+<img src="assets/figs/webui/book03.png" alt="DeepTutor book creation view" width="31%">
+</p>
+
+Book turns selected sources into interactive learning material. A book can start from knowledge bases, notebooks, question banks, or chat history; the creation flow proposes a structure before content is generated, so users can review the shape instead of accepting a blind one-shot output.
+
+The BookEngine compiles pages into typed blocks: text, sections, callouts, quizzes, flash cards, timelines, code, figures, interactive HTML, animations, concept graphs, deep dives, and user notes. Maintenance commands such as `deeptutor book health` and `deeptutor book refresh-fingerprints` help detect when source knowledge has drifted from compiled pages.
+
+### 📚 Knowledge — Versioned RAG Libraries
 
 <div align="center">
-<img src="assets/figs/dt-memgraph.png" alt="Memory Graph" width="800">
+<img src="assets/figs/webui/knowledge.png" alt="DeepTutor knowledge base workspace" width="900">
 </div>
 
-The **Memory Graph** (`/memory/graph`) renders all three layers at once: L3 synthesis at the centre, L2 facts in the middle ring, L1 traces on the outside, grouped by surface. Hover any node for an inline preview; click to lock the highlight and trace the L3 → L2 → L1 references inward, so you can audit *why* DeepTutor "knows" something about you.
+Knowledge Bases are the document collections behind RAG. The current stack is LlamaIndex-only, with a flat `version-N` storage layout keyed by embedding signature. Re-indexing preserves prior versions and avoids clobbering a working index while new documents are processed.
 
-### ⚙️ Settings — Unified Control Center
+The web workspace exposes files, upload, index versions, and settings. The CLI mirrors the same lifecycle with `deeptutor kb list`, `info`, `create`, `add`, `search`, `set-default`, and `delete`.
+
+### 🌐 Space — Skills, Personas, and Reusable Context
 
 <div align="center">
-<img src="assets/figs/dt-settings.png" alt="Settings" width="800">
+<img src="assets/figs/webui/space.png" alt="DeepTutor space workspace" width="900">
 </div>
 
-The settings surface was unified in v1.4 and split by concern, with a draft / **Apply** model so changes are atomic and can be reverted before save:
+Space is the library layer for reusable context. It brings together user-authored skills, personas, notebooks, chat history, and question-bank style assets so the agent can be steered with deliberate context instead of ad hoc prompting.
 
-- **Appearance** — UI language and theme (Cream, Snow, Dark, Glass).
-- **Status** — Live health probe across LLM, embedding, search, and storage backends.
-- **LLM**, **Embedding**, **Search** — Provider catalog, base URLs, API keys, and active model selection. Active models are picked from the catalog so every surface stays in sync.
-- **Capabilities** — Per-capability tunables (chunking, LLM budget, dedup and reference policies, max iterations) for Chat, Solve, Quiz, Research, Visualize, and Co-Writer. Backed by a unified `emit_capability_result` envelope and a shared `UsageTracker` that surfaces per-call cost.
-- **Memory** — Toggle consolidator runs, configure cadence and budget, and jump into the memory workbench.
-- **MCP servers** — Register external Model Context Protocol servers; their tools are surfaced alongside built-in tools.
-- **Tools** — Inspect every built-in tool, its parameters, status (enabled / coming-soon), and i18n status copy.
+Skills are stored as `SKILL.md` files under the user workspace and can be tagged, edited, or kept read-only when they are built in. Personas follow the same idea for role and voice. These assets can be assigned to partners, referenced in chat, and reused across learning workflows.
 
-A "Tour" launcher walks new users through the page, and every capability ships a canonical `capabilities/prompts/{en,zh}/<name>.yaml` so status messages stay consistent in both English and 中文.
+### 🧠 Memory — Inspectable Personalization
+
+<div align="center">
+<img src="assets/figs/webui/memory01.png" alt="DeepTutor memory workbench" width="900">
+</div>
+
+Memory is a three-layer system rooted in the active user workspace: `trace/<surface>/<date>.jsonl` for L1 event traces, `L2/<surface>.md` for per-surface facts, and `L3/<recent|profile|scope|preferences>.md` for cross-surface synthesis.
+
+<div align="center">
+<img src="assets/figs/webui/memory02.png" alt="DeepTutor memory graph" width="900">
+</div>
+
+The supported memory surfaces are `chat`, `notebook`, `quiz`, `kb`, `book`, `tutorbot`, and `cowriter`. The legacy `tutorbot` surface name remains in the memory layer for compatibility even though the product-facing companion model is now Partners. The workbench lets you inspect, edit, run consolidation, and use the graph to trace synthesized claims back to their supporting facts and raw events.
+
+### ⚙️ Settings — One Control Plane
+
+<div align="center">
+<img src="assets/figs/webui/settings.png" alt="DeepTutor settings workspace" width="900">
+</div>
+
+Settings is the operational control plane. It covers appearance, network ports and external API base, LLM and embedding catalogs, search providers, MinerU parsing, capability budgets, memory cadence, MCP servers, built-in tools, and the enabled optional tool list.
+
+Most settings use a draft-and-apply flow so users can test providers before committing them. Project-root `.env` files are intentionally ignored; runtime configuration lives under `data/user/settings/*.json` unless `DEEPTUTOR_HOME` or `deeptutor start --home` points the app elsewhere.
 
 ---
 
-### 🦞 TutorBot — Persistent, Autonomous AI Tutors
+## ⌨️ DeepTutor CLI — Agent-Native Interface
 
-<div align="center">
-<img src="assets/figs/tutorbot-architecture.png" alt="TutorBot Architecture" width="800">
-</div>
-
-TutorBot is not a chatbot — it is a **persistent, multi-instance agent** built on [nanobot](https://github.com/HKUDS/nanobot). Each TutorBot runs its own agent loop with independent workspace, memory, and personality. Create a Socratic math tutor, a patient writing coach, and a rigorous research advisor — all running simultaneously, each evolving with you.
-
-<div align="center">
-<img src="assets/figs/dt-tutorbot.png" alt="TutorBot Agents" width="800">
-</div>
-
-- **Soul Templates** — Define your tutor's personality, tone, and teaching philosophy through editable Soul files. Choose from built-in archetypes (Socratic, encouraging, rigorous) or craft your own — the soul shapes every response.
-- **Independent Workspace** — Each bot has its own directory with separate memory, sessions, skills, and configuration — fully isolated yet able to access DeepTutor's shared knowledge layer.
-- **Proactive Heartbeat** — Bots don't just respond — they initiate. The built-in Heartbeat system enables recurring study check-ins, review reminders, and scheduled tasks. Your tutor shows up even when you don't.
-- **Full Tool Access** — Every bot reaches into DeepTutor's complete toolkit: RAG retrieval, code execution, web search, academic paper search, deep reasoning, and brainstorming.
-- **Skill Learning** — Teach your bot new abilities by adding skill files to its workspace. As your needs evolve, so does your tutor's capability.
-- **Multi-Channel Presence** — Connect bots to Telegram, Discord, Slack, Feishu, WeChat Work, DingTalk, Matrix, QQ, WhatsApp, Email, and more. Your tutor meets you wherever you are.
-- **Team & Sub-Agents** — Spawn background sub-agents or orchestrate multi-agent teams within a single bot for complex, long-running tasks.
+DeepTutor is CLI-native: the same `deeptutor` entry point can initialize a workspace, start the web app, run a one-shot capability, open an interactive REPL, manage knowledge bases, inspect sessions, maintain books, and operate partners.
 
 ```bash
-deeptutor bot create math-tutor --persona "Socratic math teacher who uses probing questions"
-deeptutor bot create writing-coach --persona "Patient, detail-oriented writing mentor"
-deeptutor bot list                  # See all your active tutors
+deeptutor run chat "Explain Fourier transform" --tool rag --kb textbook
+deeptutor run deep_solve "Solve x^2 = 4" --tool reason
+deeptutor chat --capability deep_research --kb papers
+deeptutor partner create math-tutor --soul "Socratic math tutor"
+deeptutor kb create calculus --doc textbook.pdf
 ```
-
----
-
-### ⌨️ DeepTutor CLI — Agent-Native Interface
-
-<div align="center">
-<img src="assets/figs/cli-architecture.png" alt="DeepTutor CLI Architecture" width="800">
-</div>
-
-DeepTutor is fully CLI-native. Every capability, knowledge base, session, memory, and TutorBot is one command away — no browser required. The CLI serves both humans (with rich terminal rendering) and AI agents (with structured JSON output).
-
-Hand the [`SKILL.md`](SKILL.md) at the project root to any tool-using agent ([nanobot](https://github.com/HKUDS/nanobot), or any LLM with tool access), and it can configure and operate DeepTutor autonomously.
 
 <details>
-<summary><b>Example commands</b> — one-shot run, REPL, KB lifecycle, JSON output, session resume</summary>
+<summary><b>Command reference</b></summary>
 
-**One-shot execution** — Run any capability directly from the terminal:
-
-```bash
-deeptutor run chat "Explain the Fourier transform" -t rag --kb textbook
-deeptutor run deep_solve "Prove that √2 is irrational" -t reason
-deeptutor run deep_question "Linear algebra" --config num_questions=5
-deeptutor run deep_research "Attention mechanisms in transformers"
-deeptutor run visualize "Draw the architecture of a transformer"
-```
-
-**Interactive REPL** — A persistent chat session with live mode switching:
-
-```bash
-deeptutor chat --capability deep_solve --kb my-kb
-# Inside the REPL: /cap, /tool, /kb, /history, /notebook, /config to switch on the fly
-```
-
-**Knowledge base lifecycle** — Build, query, and manage RAG-ready collections entirely from the terminal:
-
-```bash
-deeptutor kb create my-kb --doc textbook.pdf       # Create from document
-deeptutor kb add my-kb --docs-dir ./papers/         # Add a folder of papers
-deeptutor kb search my-kb "gradient descent"        # Search directly
-deeptutor kb set-default my-kb                      # Set as default for all commands
-```
-
-**Dual output mode** — Rich rendering for humans, structured JSON for pipelines:
-
-```bash
-deeptutor run chat "Summarize chapter 3" -f rich    # Colored, formatted output
-deeptutor run chat "Summarize chapter 3" -f json    # Line-delimited JSON events
-```
-
-**Session continuity** — Resume any conversation right where you left off:
-
-```bash
-deeptutor session list                              # List all sessions
-deeptutor session open <id>                         # Resume in REPL
-```
+| Command | Description |
+|:---|:---|
+| `deeptutor init` | Create or update `data/user/settings` for the current workspace |
+| `deeptutor start [--home PATH]` | Launch backend + frontend together |
+| `deeptutor serve [--port PORT]` | Start only the FastAPI backend |
+| `deeptutor run <capability> <message>` | Run a single capability turn (`chat`, `deep_solve`, `deep_question`, `deep_research`, `visualize`, `math_animator`, `auto`, `mastery_path`) |
+| `deeptutor chat` | Interactive REPL with capability, tool, KB, notebook, and history controls |
+| `deeptutor partner list/create/start/stop` | Manage IM-connected partners |
+| `deeptutor kb list/info/create/add/search/set-default/delete` | Manage LlamaIndex knowledge bases |
+| `deeptutor memory show/clear` | Inspect L2/L3 memory docs or clear L1/all memory |
+| `deeptutor session list/show/open/rename/delete` | Manage shared sessions |
+| `deeptutor notebook list/create/show/add-md/replace-md/remove-record` | Manage notebooks from Markdown files |
+| `deeptutor book list/health/refresh-fingerprints` | Inspect books and refresh source fingerprints |
+| `deeptutor plugin list/info` | Inspect registered tools and capabilities |
+| `deeptutor config show` | Print configuration summary |
+| `deeptutor provider login <provider>` | Manage provider OAuth login where supported |
 
 </details>
 
-<details>
-<summary><b>Full CLI command reference</b></summary>
-
-**Top-level**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor run <capability> <message>` | Run any capability in a single turn (`chat`, `deep_solve`, `deep_question`, `deep_research`, `math_animator`, `visualize`) |
-| `deeptutor chat` | Interactive REPL with optional `--capability`, `--tool`, `--kb`, `--language` |
-| `deeptutor serve` | Start the DeepTutor API server |
-
-**`deeptutor bot`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor bot list` | List all TutorBot instances |
-| `deeptutor bot create <id>` | Create and start a new bot (`--name`, `--persona`, `--model`) |
-| `deeptutor bot start <id>` | Start a bot |
-| `deeptutor bot stop <id>` | Stop a bot |
-
-**`deeptutor kb`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor kb list` | List all knowledge bases |
-| `deeptutor kb info <name>` | Show knowledge base details |
-| `deeptutor kb create <name>` | Create from documents (`--doc`, `--docs-dir`) |
-| `deeptutor kb add <name>` | Add documents incrementally |
-| `deeptutor kb search <name> <query>` | Search a knowledge base |
-| `deeptutor kb set-default <name>` | Set as default KB |
-| `deeptutor kb delete <name>` | Delete a knowledge base (`--force`) |
-
-**`deeptutor memory`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor memory show [file]` | View memory (`summary`, `profile`, or `all`) |
-| `deeptutor memory clear [file]` | Clear memory (`--force`) |
-
-**`deeptutor session`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor session list` | List sessions (`--limit`) |
-| `deeptutor session show <id>` | View session messages |
-| `deeptutor session open <id>` | Resume session in REPL |
-| `deeptutor session rename <id>` | Rename a session (`--title`) |
-| `deeptutor session delete <id>` | Delete a session |
-
-**`deeptutor notebook`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor notebook list` | List notebooks |
-| `deeptutor notebook create <name>` | Create a notebook (`--description`) |
-| `deeptutor notebook show <id>` | View notebook records |
-| `deeptutor notebook add-md <id> <path>` | Import markdown as record |
-| `deeptutor notebook replace-md <id> <rec> <path>` | Replace a markdown record |
-| `deeptutor notebook remove-record <id> <rec>` | Remove a record |
-
-**`deeptutor book`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor book list` | List all books in the workspace |
-| `deeptutor book health <book_id>` | Check KB drift and book health |
-| `deeptutor book refresh-fingerprints <book_id>` | Refresh KB fingerprints and clear stale pages |
-
-**`deeptutor config` / `plugin` / `provider`**
-
-| Command | Description |
-|:---|:---|
-| `deeptutor config show` | Print current configuration summary |
-| `deeptutor plugin list` | List registered tools and capabilities |
-| `deeptutor plugin info <name>` | Show tool or capability details |
-| `deeptutor provider login <provider>` | Provider auth (`openai-codex` OAuth login; `github-copilot` validates an existing Copilot auth session) |
-
-</details>
+The CLI-only distribution is present in `packaging/deeptutor-cli`; in this checkout it should be installed from source with `python -m pip install -e ./packaging/deeptutor-cli`. The public `deeptutor-cli` package is not currently available on PyPI, so the main Get Started section keeps the source-install path.
 
 ---
 
-### 👥 Multi-User — Shared Deployments with Per-User Workspaces
+## 👥 Multi-User — Shared Deployments
 
 <div align="center">
-<img src="assets/figs/dt-multi-user.png" alt="Multi-User" width="800">
+<img src="assets/figs/webui/multi-user.png" alt="DeepTutor multi-user admin workspace" width="900">
 </div>
 
-Flip on authentication and DeepTutor turns into a multi-tenant deployment with **per-user isolated workspaces** and **admin-curated resources**. The first person to register becomes the admin and configures models, API keys, and knowledge bases on behalf of everyone else. Subsequent accounts are created by the admin (invite-only), each gets their own scoped chat history / memory / notebooks / knowledge bases, and they only see the LLMs, KBs, and skills the admin assigned to them.
+Authentication is optional and off by default. When enabled, DeepTutor becomes a shared deployment with one admin workspace, per-user workspaces, partner workspaces, and system state under one `data/` tree.
 
-**Quick start (5 steps):**
-
-```bash
-# 1. Enable auth in data/user/settings/auth.json:
-#    {"enabled": true, "token_expire_hours": 24, "cookie_secure": false}
-#    Use cookie_secure=true for HTTPS deployments where Web and API are cross-site.
-
-# 2. Restart the web stack.
-deeptutor start
-
-# 3. Open http://localhost:3782/register and create the first account.
-#    The first registration is the only public one; that user becomes admin
-#    and the /register endpoint is closed automatically afterward.
-
-# 4. As admin, navigate to /admin/users → "Add user" to provision teammates.
-
-# 5. For each user, click the slider icon → assign LLM profiles, knowledge
-#    bases, and skills. Save. The user can now sign in and start working.
+```text
+data/
+├── user/                         # Admin workspace and settings
+├── users/<uid>/                  # Non-admin user scope
+│   ├── user/chat_history.db
+│   ├── user/settings/interface.json
+│   ├── user/workspace/{chat,co-writer,book,memory,notebook,...}
+│   └── knowledge_bases/...
+├── partners/<id>/workspace/      # Partner synthetic-user scope
+└── system/
+    ├── auth/users.json
+    ├── grants/<uid>.json
+    └── audit/usage.jsonl
 ```
 
-**What the admin sees:**
+The first registered user becomes admin and can configure model catalogs, provider credentials, knowledge bases, skills, and user grants. Non-admin users get isolated chat history, memory, notebooks, personal knowledge bases, and a redacted Settings page; admin-assigned resources appear as scoped, read-only options rather than exposing API keys or provider internals.
 
-- **Full Settings page** at `/settings` — manage LLM / embedding / search providers, API keys, model catalogs, and runtime "Apply".
-- **User management** at `/admin/users` — create, promote, demote, and delete accounts. The public `/register` endpoint is automatically closed once the first admin exists; further accounts go through `POST /api/v1/auth/users` (admin-only).
-- **Grant editor** — for each non-admin user, pick the model profiles, knowledge bases, and skills they may use. Grants carry **logical IDs only**; API keys never cross the grant boundary.
-- **Audit trail** — every grant change and assigned-resource access is appended to `multi-user/_system/audit/usage.jsonl`.
+For a local trial, set `data/user/settings/auth.json` to enable auth, restart `deeptutor start`, register the first admin at `/register`, then create users from `/admin/users` and assign models, KBs, skills, tool policy, MCP policy, and code-execution access through grants.
 
-**What ordinary users get:**
+PocketBase mode remains a single-user integration in this tree; multi-user deployments should keep `integrations.pocketbase_url` blank and use the default JSON/SQLite auth and session stores unless an external user store has been explicitly designed for the deployment.
 
-- **Isolated workspace** under `multi-user/<uid>/` — their own chat history (`chat_history.db`), memory (`SUMMARY.md` / `PROFILE.md`), notebooks, and personal knowledge bases. Nothing is shared by default.
-- **Read-only access** to admin-assigned knowledge bases and skills, surfaced inline next to their own resources with an "Assigned by admin" badge.
-- **Redacted Settings page** — only theme, language, and a summary of granted models. API keys, base URLs, and provider endpoints are never returned for non-admin requests.
-- **Scoped LLM** — chat turns are routed through the admin-assigned model. If no LLM is granted, the turn is rejected up-front (no silent fallback to the admin's keys).
-
-**Workspace layout:**
-
-```
-multi-user/
-├── _system/
-│   ├── auth/users.json          # Hashed credentials, roles
-│   ├── auth/auth_secret         # JWT signing secret (auto-generated)
-│   ├── grants/<uid>.json        # Per-user resource grants (admin-managed)
-│   └── audit/usage.jsonl        # Audit trail
-└── <uid>/
-    ├── user/
-    │   ├── chat_history.db
-    │   ├── settings/interface.json
-    │   └── workspace/{chat,co-writer,book,...}
-    ├── memory/{SUMMARY.md,PROFILE.md}
-    └── knowledge_bases/...
-```
-
-**Configuration reference:**
-
-| Setting | Required | Description |
-|:---|:---|:---|
-| `data/user/settings/auth.json: enabled` | Yes | Set to `true` to enable multi-user auth. Default `false` (single-user mode — admin paths everywhere). |
-| `multi-user/_system/auth/auth_secret` | Recommended | JWT signing secret. Auto-generated on first authenticated boot if missing. |
-| `data/user/settings/auth.json: token_expire_hours` | No | JWT lifetime; defaults to `24`. |
-| `data/user/settings/auth.json: cookie_secure` | HTTPS / cross-site auth | Set `true` for HTTPS deployments that need `SameSite=None` cookies. Keep `false` for local HTTP. |
-| `data/user/settings/auth.json: username/password_hash` | No | Optional headless single-user bootstrap credential. Leave blank when using browser registration. |
-| `data/user/settings/system.json` | No | `deeptutor start` derives frontend auth flags, public API base, and CORS origins from runtime settings. |
-
-> ⚠️ **PocketBase mode (`integrations.pocketbase_url` set) is single-user only.** The default PocketBase schema has no `role` field on `users` (every login resolves to `role=user`, no admin can be created), and `sessions` / `messages` / `turns` queries are not filtered by `user_id`. Multi-user deployments must keep `integrations.pocketbase_url` blank and use the default JSON/SQLite backend.
-
-> ⚠️ **Single-process recommendation.** The first-user-becomes-admin promotion is protected by an in-process `threading.Lock`. Multi-worker deployments should provision the first admin offline (start with `auth.json.enabled=false`, register the admin via the bootstrap flow, then set `auth.json.enabled=true`) or back the user store with an external system.
-
+---
 ## 🌐 Community & Ecosystem
 
 DeepTutor stands on the shoulders of outstanding open-source projects:
 
 | Project | Role in DeepTutor |
 |:---|:---|
-| [**nanobot**](https://github.com/HKUDS/nanobot) | Ultra-lightweight agent engine powering TutorBot |
+| [**nanobot**](https://github.com/HKUDS/nanobot) | Ultra-lightweight agent engine that powered the original TutorBot (Partners now run on DeepTutor's chat agent loop) |
 | [**LlamaIndex**](https://github.com/run-llama/llama_index) | RAG pipeline and document indexing backbone |
 | [**ManimCat**](https://github.com/Wing900/ManimCat) | AI-driven math animation generation for Math Animator |
 

@@ -8,10 +8,33 @@ export interface ModuleInit {
   knowledge_points: { id: string; name: string; type: string; module_id: string }[];
 }
 
-export async function fetchProgress(bookId: string) {
+export interface LearningKnowledgePoint {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface LearningModule {
+  id: string;
+  name: string;
+  order: number;
+  pass_threshold: number;
+  knowledge_points: LearningKnowledgePoint[];
+}
+
+export interface ProgressDetail {
+  book_id: string;
+  modules: LearningModule[];
+  mastery_levels: Record<string, number>;
+  current_module_id?: string;
+  current_stage?: string;
+  diagnostic?: unknown;
+}
+
+export async function fetchProgress(bookId: string): Promise<ProgressDetail> {
   const res = await apiFetch(apiUrl(`/api/v1/learning/progress/${bookId}`));
   if (!res.ok) throw new Error(`Failed to fetch progress: ${res.status}`);
-  return res.json();
+  return res.json() as Promise<ProgressDetail>;
 }
 
 export async function initModules(bookId: string, modules: ModuleInit[]) {

@@ -4,10 +4,19 @@ Parse PDF files using MinerU and save results to reference_papers directory
 """
 
 import argparse
+from collections import deque
+from collections.abc import Callable
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
+
+# Minimum seconds between on_output callbacks. MinerU's CLI emits tqdm-style
+# progress that universal-newline decoding turns into many lines per second;
+# without a floor the trace panel gets flooded during model downloads.
+_ON_OUTPUT_MIN_INTERVAL = 0.5
 
 
 def check_mineru_installed():
@@ -44,28 +53,46 @@ def check_mineru_installed():
     return None
 
 
-def parse_pdf_with_mineru(pdf_path: str, output_base_dir: str = None):
+def parse_pdf_with_mineru(
+    pdf_path: str,
+    output_base_dir: str = None,
+    on_output: Callable[[str], None] | None = None,
+    cli_command: str | None = None,
+    extra_env: dict[str, str] | None = None,
+):
     """
     Parse PDF file using MinerU
 
     Args:
         pdf_path: Path to PDF file
         output_base_dir: Base path for output directory, defaults to reference_papers
+        on_output: Optional callback invoked (rate-limited) with each line of
+            the CLI's combined stdout/stderr, so callers can surface live
+            progress (model downloads, per-page parsing) instead of a silent
+            multi-minute subprocess. Called from this thread.
+        cli_command: Explicit MinerU executable to run (the validated
+            ``local_cli_path`` setting). None = auto-detect from PATH.
+        extra_env: Env vars merged over os.environ for the subprocess (e.g.
+            MINERU_MODEL_SOURCE / HF_ENDPOINT so a lazy first-parse model
+            download honors the configured source and mirror).
 
     Returns:
         bool: Whether parsing was successful
     """
-    mineru_cmd = check_mineru_installed()
-    if not mineru_cmd:
-        print("✗ Error: MinerU installation not detected")
-        print("Please install MinerU first:")
-        print("  pip install magic-pdf[full]")
-        print("or")
-        print("  pip install mineru")
-        print("or visit: https://github.com/opendatalab/MinerU")
-        return False
-
-    print(f"✓ Detected MinerU command: {mineru_cmd}")
+    if cli_command:
+        mineru_cmd = cli_command
+        print(f"✓ Using configured MinerU command: {mineru_cmd}")
+    else:
+        mineru_cmd = check_mineru_installed()
+        if not mineru_cmd:
+            print("✗ Error: MinerU installation not detected")
+            print("Please install MinerU first:")
+            print("  pip install magic-pdf[full]")
+            print("or")
+            print("  pip install mineru")
+            print("or visit: https://github.com/opendatalab/MinerU")
+            return False
+        print(f"✓ Detected MinerU command: {mineru_cmd}")
 
     pdf_path = Path(pdf_path).resolve()
     if not pdf_path.exists():
@@ -104,12 +131,40 @@ def parse_pdf_with_mineru(pdf_path: str, output_base_dir: str = None):
 
         print(f"🔧 Executing command: {' '.join(cmd)}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, shell=False)
+        # Stream combined stdout/stderr line by line. text=True enables
+        # universal newlines, so tqdm's \r-rewritten progress bars arrive as
+        # individual lines rather than one giant buffered blob at exit.
+        process = subprocess.Popen(  # nosec B603 — fixed argv, shell=False
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            shell=False,
+            env={**os.environ, **extra_env} if extra_env else None,
+        )
+        tail: deque[str] = deque(maxlen=40)
+        last_emit = 0.0
+        assert process.stdout is not None
+        for raw_line in process.stdout:
+            line = raw_line.strip()
+            if not line:
+                continue
+            tail.append(line)
+            if on_output is not None:
+                now = time.monotonic()
+                if now - last_emit >= _ON_OUTPUT_MIN_INTERVAL:
+                    last_emit = now
+                    try:
+                        on_output(line[:300])
+                    except Exception:
+                        # A broken callback must not kill the parse; stop
+                        # reporting and keep going.
+                        on_output = None
+        returncode = process.wait()
 
-        if result.returncode != 0:
+        if returncode != 0:
             print("✗ MinerU parsing failed:")
-            print(f"Stdout: {result.stdout}")
-            print(f"Stderr: {result.stderr}")
+            print("\n".join(tail))
             if temp_output.exists():
                 shutil.rmtree(temp_output)
             return False

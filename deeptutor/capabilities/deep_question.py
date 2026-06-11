@@ -10,6 +10,7 @@ Routes one user turn through the right quiz-generation path:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import tempfile
 from typing import Any
@@ -187,6 +188,7 @@ class DeepQuestionCapability(BaseCapability):
             build_question_runtime_config,
         )
         from deeptutor.services.config import load_config_with_main
+        from deeptutor.tools.question.mineru_config import MinerUError
 
         if i18n is None:
             i18n = StatusI18n(self.name, context.language)
@@ -219,21 +221,41 @@ class DeepQuestionCapability(BaseCapability):
                 await stream.thinking(message, source=self.name, stage="exploring")
 
         if pdf_attachment and pdf_attachment.base64:
-            await _emit_parse_notice(
-                i18n.t(
-                    "parsing_uploaded",
-                    "Parsing uploaded exam paper and extracting templates...",
+            # Bridge MinerU's progress lines (emitted from the parser worker
+            # thread) back onto the event loop so the trace panel streams them
+            # live — model downloads and per-page parsing would otherwise look
+            # like a silent multi-minute hang.
+            loop = asyncio.get_running_loop()
+
+            def _parse_progress(line: str) -> None:
+                asyncio.run_coroutine_threadsafe(
+                    stream.thinking(line, source=self.name, stage="exploring"),
+                    loop,
                 )
-            )
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as temp_pdf:
-                temp_pdf.write(base64.b64decode(pdf_attachment.base64))
-                temp_pdf.flush()
-                templates, _ = await parse_exam_paper_to_templates(
-                    temp_pdf.name,
-                    max_questions=max_questions,
-                    paper_mode="upload",
-                    output_dir=output_dir,
-                )
+
+            try:
+                async with stream.stage("exploring", source=self.name):
+                    await stream.thinking(
+                        i18n.t(
+                            "parsing_uploaded",
+                            "Parsing uploaded exam paper and extracting templates...",
+                        ),
+                        source=self.name,
+                        stage="exploring",
+                    )
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as temp_pdf:
+                        temp_pdf.write(base64.b64decode(pdf_attachment.base64))
+                        temp_pdf.flush()
+                        templates, _ = await parse_exam_paper_to_templates(
+                            temp_pdf.name,
+                            max_questions=max_questions,
+                            paper_mode="upload",
+                            output_dir=output_dir,
+                            progress_callback=_parse_progress,
+                        )
+            except MinerUError as exc:
+                await stream.error(str(exc), source=self.name)
+                return
             await pipeline.run(
                 context=context,
                 user_message=context.user_message,
@@ -254,12 +276,16 @@ class DeepQuestionCapability(BaseCapability):
                     "Loading parsed exam paper and extracting templates...",
                 )
             )
-            templates, _ = await parse_exam_paper_to_templates(
-                paper_path,
-                max_questions=max_questions,
-                paper_mode="parsed",
-                output_dir=output_dir,
-            )
+            try:
+                templates, _ = await parse_exam_paper_to_templates(
+                    paper_path,
+                    max_questions=max_questions,
+                    paper_mode="parsed",
+                    output_dir=output_dir,
+                )
+            except MinerUError as exc:
+                await stream.error(str(exc), source=self.name)
+                return
             await pipeline.run(
                 context=context,
                 user_message=context.user_message,

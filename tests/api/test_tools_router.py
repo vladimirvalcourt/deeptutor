@@ -43,7 +43,6 @@ async def test_list_builtin_tools_marks_toggleable_set(
         "brainstorm",
         "web_search",
         "paper_search",
-        "code_execution",
         "reason",
     }
 
@@ -78,8 +77,9 @@ async def test_list_builtin_tools_reflects_user_toggle(
     assert by_name["web_search"].enabled is True
     assert by_name["reason"].enabled is True
     assert by_name["brainstorm"].enabled is False
-    assert by_name["code_execution"].enabled is False
     assert by_name["paper_search"].enabled is False
-    # Locked-on tools stay on regardless.
+    # Locked-on tools stay on regardless (code_execution is now auto-mounted,
+    # gated by sandbox availability rather than a user toggle).
+    assert by_name["code_execution"].enabled is True
     assert by_name["rag"].enabled is True
     assert by_name["web_fetch"].enabled is True

@@ -119,9 +119,7 @@ def test_normalize_book_references_merges_and_filters() -> None:
 
 def test_normalize_book_references_keeps_empty_page_ids() -> None:
     """Empty page_ids means 'whole book' — ref must be kept for book_id resolution."""
-    refs = normalize_book_references(
-        [{"book_id": "book-1", "page_ids": []}]
-    )
+    refs = normalize_book_references([{"book_id": "book-1", "page_ids": []}])
 
     assert len(refs) == 1
     assert refs[0].book_id == "book-1"

@@ -19,7 +19,7 @@ description: 在企业微信上跑 TutorBot —— 通过 AI Bot 平台的 WebSo
 pip install wecom-aibot-sdk
 ```
 
-如果你用 `pip install -e ".[tutorbot]"` 装的，可能已经带了。验证一下：
+如果你用 `pip install -e ".[partners]"` 装的，可能已经带了。验证一下：
 
 ```bash
 python -c "import wecom_aibot_sdk; print('ok')"

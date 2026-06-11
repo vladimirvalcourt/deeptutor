@@ -10,7 +10,6 @@ from deeptutor.logging import configure_logging
 from deeptutor.runtime.mode import RunMode, set_mode
 
 from .book import register as register_book
-from .bot import register as register_bot
 from .chat import register as register_chat
 from .common import build_turn_request, console, maybe_run
 from .config_cmd import register as register_config
@@ -18,6 +17,7 @@ from .init_cmd import register as register_init
 from .kb import register as register_kb
 from .memory import register as register_memory
 from .notebook import register as register_notebook
+from .partner import register as register_partner
 from .plugin import register as register_plugin
 from .provider_cmd import register as register_provider
 from .session_cmd import register as register_session
@@ -32,7 +32,7 @@ app = typer.Typer(
     add_completion=False,
 )
 
-bot_app = typer.Typer(help="Manage TutorBot instances.")
+partner_app = typer.Typer(help="Manage partners (IM-connected companions).")
 chat_app = typer.Typer(help="Interactive chat REPL.")
 kb_app = typer.Typer(help="Manage knowledge bases.")
 memory_app = typer.Typer(help="View and manage lightweight memory.")
@@ -43,7 +43,7 @@ notebook_app = typer.Typer(help="Manage notebooks and imported markdown records.
 provider_app = typer.Typer(help="Manage provider OAuth login.")
 book_app = typer.Typer(help="Manage interactive Books (BookEngine).")
 
-app.add_typer(bot_app, name="bot")
+app.add_typer(partner_app, name="partner")
 app.add_typer(chat_app, name="chat")
 app.add_typer(kb_app, name="kb")
 app.add_typer(memory_app, name="memory")
@@ -54,7 +54,7 @@ app.add_typer(notebook_app, name="notebook")
 app.add_typer(provider_app, name="provider")
 app.add_typer(book_app, name="book")
 
-register_bot(bot_app)
+register_partner(partner_app)
 register_chat(chat_app)
 register_kb(kb_app)
 register_memory(memory_app)

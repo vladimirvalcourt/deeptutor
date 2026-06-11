@@ -29,7 +29,10 @@ import {
   AskUserOptions,
   extractMessageSegments,
 } from "@/components/chat/home/AskUserOptions";
-import { TraceSurface } from "@/components/chat/home/TracePanels";
+import {
+  StreamingStatus,
+  TraceFlow,
+} from "@/components/chat/home/TracePanels";
 import { useSmoothStreamText } from "@/hooks/useSmoothStreamText";
 import {
   type QuizFollowupTabContext,
@@ -255,9 +258,9 @@ export default function QuizFollowupTabBody({
                     </div>
                   );
                 }
-                // Assistant message: render the same TraceSurface the
-                // main chat uses (reasoning blocks, tool-call cards,
-                // streaming-status row) followed by the message body. If
+                // Assistant message: render the same inline trace rows the
+                // main chat uses (TraceFlow) followed by the message body
+                // and the bottom-pinned StreamingStatus row. If
                 // the turn paused on ``ask_user``, splice the picker card
                 // into the body in stream order — text emitted before the
                 // pause sits above the card, text from the resumed
@@ -331,11 +334,7 @@ function AssistantThreadMessage({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <TraceSurface
-        events={message.events ?? []}
-        isStreaming={isStreaming}
-        content={message.content}
-      />
+      <TraceFlow events={message.events ?? []} isStreaming={isStreaming} />
       {hasInlineAskUser ? (
         segments.map((seg) =>
           seg.kind === "text" ? (
@@ -360,6 +359,12 @@ function AssistantThreadMessage({
           <MarkdownRenderer content={smoothedContent} variant="compact" />
         </div>
       ) : null}
+      {/* Status row pinned to the bottom of the assistant output. */}
+      <StreamingStatus
+        events={message.events ?? []}
+        isStreaming={isStreaming}
+        content={message.content}
+      />
     </div>
   );
 }

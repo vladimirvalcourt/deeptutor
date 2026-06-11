@@ -2,18 +2,38 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { fetchAuthStatus } from "@/lib/auth";
 import { SETTINGS_ITEMS } from "@/lib/settings-items";
 
 export default function SettingsMiniNav() {
   const pathname = usePathname();
   const { t } = useTranslation();
+  // Only hide admin-only entries when we positively know the user is a
+  // non-admin; the backend rejects them regardless.
+  const [hideAdminOnly, setHideAdminOnly] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAuthStatus().then((status) => {
+      if (cancelled || !status) return;
+      setHideAdminOnly(Boolean(status.enabled) && !status.is_admin);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const items = SETTINGS_ITEMS.filter(
+    (item) => !(item.adminOnly && hideAdminOnly),
+  );
 
   return (
     <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)]">
       <div className="px-5 pb-4 pt-6">
-        <h1 className="text-[19px] font-semibold leading-tight tracking-tight text-[var(--foreground)]">
+        <h1 className="font-serif text-[19px] font-semibold leading-tight tracking-tight text-[var(--foreground)]">
           {t("Settings")}
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-snug text-[var(--muted-foreground)]/80">
@@ -29,7 +49,7 @@ export default function SettingsMiniNav() {
       />
 
       <nav className="flex-1 px-2.5 py-3">
-        {SETTINGS_ITEMS.map(({ href, label, description, icon: Icon }) => {
+        {items.map(({ href, label, description, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link

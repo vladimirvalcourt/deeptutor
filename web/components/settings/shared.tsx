@@ -179,7 +179,7 @@ export function SettingsPageHeader({
 }) {
   return (
     <header className="mb-8">
-      <h1 className="text-[22px] font-semibold tracking-tight text-[var(--foreground)]">
+      <h1 className="font-serif text-[22px] font-semibold tracking-tight text-[var(--foreground)]">
         {title}
       </h1>
       {description && (

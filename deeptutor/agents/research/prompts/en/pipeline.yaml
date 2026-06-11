@@ -96,7 +96,7 @@ rephrase:
     Hard rules:
     - You may call ``ask_user`` at most {max_rounds} times.
     - Each ``ask_user`` call carries at most {max_questions_per_round} questions.
-    - Each question should offer 3-5 suggested options as quick-pick chips.
+    - Each question should offer 2-4 distinct quick-pick options: keep each label short (1-5 words), put what picking it implies in its ``description``, and if you recommend one, place it first with " (Recommended)" appended to its label.
     - If the user's original topic is already clear, FINISH immediately without asking anything. Do not invent ambiguity to justify questions.
     - If the user skips a question (``(skipped)``), respect their preference and either ask follow-ups in a later round or FINISH.
     - Do not paste the user's original topic verbatim into FINISH — restate it as a sharper, more specific research target.

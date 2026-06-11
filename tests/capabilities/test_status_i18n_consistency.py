@@ -15,8 +15,8 @@ can be parametrized over more capabilities once their yamls use the same
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
+import re
 
 import yaml
 
@@ -61,6 +61,5 @@ def test_no_orphan_yaml_keys() -> None:
     code = _code()
     orphans = {k for k in _status_keys("en") if f'"{k}"' not in code}
     assert not orphans, (
-        "yaml status keys never referenced in visualize.py (dead copy): "
-        f"{sorted(orphans)}"
+        f"yaml status keys never referenced in visualize.py (dead copy): {sorted(orphans)}"
     )

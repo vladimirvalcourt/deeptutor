@@ -6,6 +6,7 @@ import pytest
 
 from deeptutor.agents.chat.agentic_pipeline import AgenticChatPipeline
 from deeptutor.agents.chat.chat_agent import ChatAgent
+from deeptutor.agents.chat.prompt_blocks import ChatPromptAssembler
 
 
 @pytest.fixture(autouse=True)
@@ -42,9 +43,8 @@ def test_agentic_chat_final_prompt_uses_selected_language(
     zh_prompt = AgenticChatPipeline(language="zh")._build_system_prompt([], ctx)
     en_prompt = AgenticChatPipeline(language="en")._build_system_prompt([], ctx)
 
-    # Single-loop pipeline merged the four stage prompts into one chat
-    # persona; the language directive (append_language_directive) still
-    # runs at the end, so per-language imperatives must surface.
+    # Prompt blocks are phase-specific, but the shared language directive
+    # still runs at the end, so per-language imperatives must surface.
     assert "请严格使用中文" in zh_prompt
     assert "Write ALL reader-facing text" in en_prompt
     # Persona phrasing differs by language so the prompts are not just
@@ -67,3 +67,33 @@ def test_legacy_chat_agent_system_prompt_uses_selected_language() -> None:
     assert "请严格使用中文" in zh_messages[0]["content"]
     assert "You are DeepTutor" in en_messages[0]["content"]
     assert "Write ALL reader-facing text" in en_messages[0]["content"]
+
+
+def test_prompt_blocks_include_localized_optional_context() -> None:
+    from deeptutor.core.context import UnifiedContext
+
+    prompts = {
+        "general": "通用",
+        "runtime_policy": "策略",
+        "loop": {
+            "system": "循环",
+            "user": "用户说：{user_message}",
+            "finish_exhausted": "预算已用完，请直接回答。",
+        },
+    }
+    ctx = UnifiedContext(
+        user_message="解释光合作用",
+        persona_context="用苏格拉底式提问",
+        memory_context="学生喜欢例子",
+    )
+    assembler = ChatPromptAssembler(prompts=prompts, language="zh")
+
+    blocks = assembler.blocks(context=ctx, tool_manifest="", workspace_note="工作区可用")
+
+    names = [block.name for block in blocks]
+    assert names[:3] == ["general", "runtime_policy", "loop"]
+    assert "persona_style" in names
+    assert "memory" in names
+    assert "workspace" in names
+    assert assembler.user_message(context=ctx) == "用户说：解释光合作用"
+    assert assembler.finish_exhausted_instruction() == "预算已用完，请直接回答。"

@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 from deeptutor.multi_user.context import get_current_user
-from deeptutor.multi_user.model_access import allowed_llm_options, redacted_model_access
+from deeptutor.multi_user.model_access import allowed_llm_options
 from deeptutor.services.config import (
     get_config_test_runner,
     get_model_catalog_service,
@@ -55,7 +55,8 @@ DEFAULT_SIDEBAR_NAV_ORDER = {
 }
 
 DEFAULT_UI_SETTINGS = {
-    "theme": "light",
+    # "snow" is the pure-white neutral theme, shown as "Default" in the UI.
+    "theme": "snow",
     "language": "en",
     "sidebar_description": "✨ Data Intelligence Lab @ HKU",
     "sidebar_nav_order": DEFAULT_SIDEBAR_NAV_ORDER,
@@ -73,7 +74,7 @@ class SidebarNavOrder(BaseModel):
 
 
 class UISettings(BaseModel):
-    theme: Literal["light", "dark", "glass", "snow"] = "light"
+    theme: Literal["light", "dark", "glass", "snow"] = "snow"
     language: Literal["zh", "en"] = "en"
     sidebar_description: Optional[str] = None
     sidebar_nav_order: Optional[SidebarNavOrder] = None
@@ -114,6 +115,36 @@ class NetworkSettingsUpdate(BaseModel):
     frontend_port: int = Field(ge=1, le=65535)
     public_api_base: str = ""
     cors_origins: list[str] = Field(default_factory=list)
+
+
+class MinerUSettingsUpdate(BaseModel):
+    """MinerU PDF-parsing backend settings.
+
+    ``api_token`` is tri-state: ``None`` keeps the stored token (the UI sends
+    None when the user didn't edit the secret field), ``""`` clears it, and a
+    non-empty string replaces it. The GET payload never echoes the raw token.
+    """
+
+    mode: Literal["local", "cloud"] = "local"
+    api_base_url: str = "https://mineru.net"
+    api_token: Optional[str] = None
+    local_cli_path: str = ""
+    model_download_source: Literal["huggingface", "modelscope"] = "huggingface"
+    model_download_endpoint: str = ""
+    model_version: Literal["pipeline", "vlm"] = "pipeline"
+    language: str = "auto"
+    enable_formula: bool = True
+    enable_table: bool = True
+    is_ocr: bool = False
+
+
+class MinerUModelDownloadPayload(BaseModel):
+    """One-click model download request (draft form values, like /test)."""
+
+    model_type: Literal["pipeline", "vlm", "all"] = "pipeline"
+    source: Literal["huggingface", "modelscope"] = "huggingface"
+    endpoint: str = ""
+    local_cli_path: str = ""
 
 
 def _invalidate_runtime_caches() -> None:
@@ -169,9 +200,16 @@ def get_enabled_optional_tools() -> list[str]:
     """Return the user's currently-enabled toggleable tool names.
 
     Source of truth for the chat pipeline when a turn doesn't ship an
-    explicit ``tools`` list.
+    explicit ``tools`` list. Intersected with the admin grant whitelist so
+    a restricted user's saved toggles can't resurrect a revoked tool.
     """
-    return _sanitize_enabled_tools(load_ui_settings().get("enabled_optional_tools"))
+    from deeptutor.multi_user.tool_access import allowed_optional_tools
+
+    enabled = _sanitize_enabled_tools(load_ui_settings().get("enabled_optional_tools"))
+    allowed = allowed_optional_tools()
+    if allowed is not None:
+        enabled = [name for name in enabled if name in allowed]
+    return enabled
 
 
 def save_ui_settings(settings: dict[str, Any]) -> None:
@@ -293,10 +331,9 @@ def _network_settings_payload() -> dict[str, Any]:
 async def get_settings():
     user = get_current_user()
     if not user.is_admin:
-        return {
-            "ui": load_ui_settings(),
-            "model_access": redacted_model_access(user.id),
-        }
+        # Non-admins never see the catalog (provider URLs/keys); their model
+        # choices come from /settings/llm-options (grant-filtered).
+        return {"ui": load_ui_settings()}
     return {
         "ui": load_ui_settings(),
         "catalog": get_model_catalog_service().load(),
@@ -332,6 +369,177 @@ async def update_network_settings(payload: NetworkSettingsUpdate):
         }
     )
     return _network_settings_payload()
+
+
+def _mineru_settings_payload() -> dict[str, Any]:
+    """MinerU settings for the UI, with the API token redacted to a boolean.
+
+    ``local_cli`` is a fast PATH probe (no subprocess) so the page can show
+    install status at config time instead of failing at parse time; the
+    definitive ``--version`` check runs behind the explicit Test button.
+    """
+    from deeptutor.tools.question.mineru_backend import local_cli_probe
+
+    service = get_runtime_settings_service()
+    settings = service.load_mineru(include_process_overrides=True)
+    public = {key: value for key, value in settings.items() if key != "api_token"}
+    return {
+        "settings": public,
+        "api_token_set": bool(settings.get("api_token")),
+        "local_cli": local_cli_probe(str(settings.get("local_cli_path") or "")),
+    }
+
+
+@router.get("/mineru")
+async def get_mineru_settings():
+    _require_settings_admin()
+    return _mineru_settings_payload()
+
+
+@router.put("/mineru")
+async def update_mineru_settings(payload: MinerUSettingsUpdate):
+    _require_settings_admin()
+    service = get_runtime_settings_service()
+    current = service.load_mineru(include_process_overrides=False)
+    # Tri-state token: None keeps the stored value, anything else replaces it.
+    token = current.get("api_token", "")
+    if payload.api_token is not None:
+        token = payload.api_token.strip()
+    service.save_mineru(
+        {
+            "mode": payload.mode,
+            "api_base_url": payload.api_base_url,
+            "api_token": token,
+            "local_cli_path": payload.local_cli_path,
+            "model_download_source": payload.model_download_source,
+            "model_download_endpoint": payload.model_download_endpoint,
+            "model_version": payload.model_version,
+            "language": payload.language,
+            "enable_formula": payload.enable_formula,
+            "enable_table": payload.enable_table,
+            "is_ocr": payload.is_ocr,
+        }
+    )
+    return _mineru_settings_payload()
+
+
+@router.post("/mineru/models/download")
+async def start_mineru_models_download(payload: MinerUModelDownloadPayload):
+    """Kick off a one-click model download via ``mineru-models-download``.
+
+    Returns ``{ok, message}`` immediately; progress is polled via the status
+    endpoint. Only one download runs at a time (process-wide singleton).
+    """
+    _require_settings_admin()
+    from deeptutor.tools.question.mineru_models import (
+        get_model_download_manager,
+        resolve_models_downloader,
+    )
+
+    resolved = resolve_models_downloader(payload.local_cli_path)
+    if not resolved["found"]:
+        if resolved["path"]:
+            message = (
+                f"mineru-models-download not found next to the configured CLI "
+                f"(expected {resolved['path']}). The configured install may be "
+                "magic-pdf 1.x — upgrade to MinerU 2.x for one-click downloads."
+            )
+        else:
+            message = (
+                "mineru-models-download not found on the server PATH. Install "
+                'MinerU 2.x first (uv pip install -U "mineru[core]") or set the CLI path.'
+            )
+        return {"ok": False, "message": message}
+
+    return get_model_download_manager().start(
+        downloader=resolved["path"],
+        model_type=payload.model_type,
+        source=payload.source,
+        endpoint=payload.endpoint,
+    )
+
+
+@router.get("/mineru/models/download/status")
+async def mineru_models_download_status(cursor: int = 0):
+    _require_settings_admin()
+    from deeptutor.tools.question.mineru_models import get_model_download_manager
+
+    return get_model_download_manager().status(cursor)
+
+
+@router.post("/mineru/models/download/cancel")
+async def cancel_mineru_models_download():
+    _require_settings_admin()
+    from deeptutor.tools.question.mineru_models import get_model_download_manager
+
+    return get_model_download_manager().cancel()
+
+
+@router.post("/mineru/test")
+async def test_mineru_connection(payload: MinerUSettingsUpdate):
+    """Validate the active backend. ``mode == "local"`` checks the CLI install
+    (PATH probe + ``--version``); cloud mode validates the token against the
+    live MinerU API (no parse quota consumed). Tests the draft form values so
+    the user can verify before saving; falls back to the stored token when the
+    secret field is untouched."""
+    _require_settings_admin()
+    from deeptutor.tools.question.mineru_cloud import verify_credentials
+    from deeptutor.tools.question.mineru_config import MinerUConfig, MinerUError
+
+    if payload.mode == "local":
+        from deeptutor.tools.question.mineru_backend import local_cli_probe, local_cli_version
+
+        probe = local_cli_probe(payload.local_cli_path)
+        if not probe["found"]:
+            if probe.get("source") == "configured":
+                return {
+                    "ok": False,
+                    "message": (
+                        f"Configured CLI path is not an executable file: {probe['path']}. "
+                        "Fix the path or clear it to auto-detect from PATH."
+                    ),
+                }
+            return {
+                "ok": False,
+                "message": (
+                    "MinerU CLI not found on the server PATH. Install it "
+                    '(uv pip install -U "mineru[core]"), set an explicit CLI path, '
+                    "or switch to cloud mode."
+                ),
+            }
+        # For a configured path, run --version against the path itself (the
+        # bare command name may not be on this process's PATH).
+        version_target = (
+            probe["path"] if probe.get("source") == "configured" else str(probe["command"])
+        )
+        version = await asyncio.to_thread(local_cli_version, version_target)
+        detail = version or f"at {probe['path']}"
+        return {
+            "ok": True,
+            "message": f"Local MinerU CLI detected: {probe['command']} ({detail})",
+        }
+
+    service = get_runtime_settings_service()
+    stored = service.load_mineru(include_process_overrides=False)
+    token = stored.get("api_token", "") if payload.api_token is None else payload.api_token.strip()
+    config = MinerUConfig(
+        mode="cloud",
+        api_base_url=(payload.api_base_url or "").strip().rstrip("/") or "https://mineru.net",
+        api_token=token,
+        model_version=payload.model_version,
+        language=payload.language or "auto",
+        enable_formula=payload.enable_formula,
+        enable_table=payload.enable_table,
+        is_ocr=payload.is_ocr,
+    )
+    try:
+        await asyncio.to_thread(verify_credentials, config)
+    except MinerUError as exc:
+        return {"ok": False, "message": str(exc)}
+    except Exception as exc:  # noqa: BLE001 — report any provider error to the UI
+        logger.exception("MinerU connectivity test failed")
+        return {"ok": False, "message": f"Unexpected error: {exc}"}
+    return {"ok": True, "message": "MinerU API token is valid."}
 
 
 @router.get("/llm-options")
@@ -427,8 +635,8 @@ async def reset_settings():
 async def get_themes():
     return {
         "themes": [
-            {"id": "snow", "name": "Snow"},
-            {"id": "light", "name": "Light"},
+            {"id": "snow", "name": "Default"},
+            {"id": "light", "name": "Cream"},
             {"id": "dark", "name": "Dark"},
             {"id": "glass", "name": "Glass"},
         ]

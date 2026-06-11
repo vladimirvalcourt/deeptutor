@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 _HISTORY_MAX_MESSAGES = 40
 _HISTORY_MAX_CHARS = 24_000
+_ARCHIVE_PREFIX = "_archived_"
 
 
 class PartnerSessionStore:
@@ -34,6 +35,10 @@ class PartnerSessionStore:
 
     def _path(self, session_key: str) -> Path:
         return self._dir / f"{safe_filename(session_key) or 'default'}.jsonl"
+
+    @staticmethod
+    def is_archived_key(session_key: str) -> bool:
+        return safe_filename(session_key).startswith(_ARCHIVE_PREFIX)
 
     # ── write ─────────────────────────────────────────────────────
 
@@ -69,6 +74,38 @@ class PartnerSessionStore:
             return False
         path.unlink()
         return True
+
+    def archive(self, session_key: str) -> dict[str, Any] | None:
+        """Move the current session file aside and return its archive summary.
+
+        The active key remains reusable: after archiving ``telegram:42``, new
+        messages write to ``telegram_42.jsonl`` while the old file is kept as a
+        separate archived session that can still be inspected through the
+        history API by using the returned ``session_key``.
+        """
+        path = self._path(session_key)
+        if not path.exists():
+            return None
+        records = self._read_records(session_key)
+        if not records:
+            return None
+
+        safe_key = safe_filename(session_key) or "default"
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        archive_key = f"{_ARCHIVE_PREFIX}{stamp}_{safe_key}"
+        archive_path = self._path(archive_key)
+        suffix = 1
+        while archive_path.exists():
+            archive_key = f"{_ARCHIVE_PREFIX}{stamp}_{suffix}_{safe_key}"
+            archive_path = self._path(archive_key)
+            suffix += 1
+
+        with self._write_lock:
+            if not path.exists():
+                return None
+            path.replace(archive_path)
+
+        return self._session_summary(archive_path)
 
     # ── read ──────────────────────────────────────────────────────
 
@@ -121,11 +158,15 @@ class PartnerSessionStore:
         """Raw records (role/content/timestamp/...) for the history API."""
         return self._read_records(session_key)[-limit:]
 
-    def merged_messages(self, *, limit: int = 100) -> list[dict[str, Any]]:
+    def merged_messages(
+        self, *, limit: int = 100, include_archived: bool = False
+    ) -> list[dict[str, Any]]:
         """All sessions' records merged chronologically (recent-activity view)."""
         merged: list[tuple[str, int, dict[str, Any]]] = []
         sequence = 0
         for path in sorted(self._dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime):
+            if not include_archived and self.is_archived_key(path.stem):
+                continue
             key = path.stem
             for record in self._read_records(key):
                 merged.append((str(record.get("timestamp", "")), sequence, record))
@@ -133,22 +174,25 @@ class PartnerSessionStore:
         merged.sort(key=lambda item: (item[0], item[1]))
         return [item[2] for item in merged[-limit:]]
 
+    def _session_summary(self, path: Path) -> dict[str, Any]:
+        records = self._read_records(path.stem)
+        last = records[-1] if records else {}
+        archived = self.is_archived_key(path.stem)
+        return {
+            "session_key": path.stem,
+            "message_count": len(records),
+            "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+            "last_message": str(last.get("content", ""))[:200],
+            "archived": archived,
+        }
+
     def list_sessions(self) -> list[dict[str, Any]]:
-        sessions: list[dict[str, Any]] = []
-        for path in sorted(
-            self._dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
-        ):
-            records = self._read_records(path.stem)
-            last = records[-1] if records else {}
-            sessions.append(
-                {
-                    "session_key": path.stem,
-                    "message_count": len(records),
-                    "updated_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-                    "last_message": str(last.get("content", ""))[:200],
-                }
+        return [
+            self._session_summary(path)
+            for path in sorted(
+                self._dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
             )
-        return sessions
+        ]
 
 
 __all__ = ["PartnerSessionStore"]

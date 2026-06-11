@@ -152,7 +152,9 @@ class TestTurnExecution:
         self, partners_root, fake_orchestrator
     ):
         fake_orchestrator.script = _narration_round("c1", "exploring…") + _finish("done")
-        config = PartnerConfig(name="Ada", channels={"send_progress": False})
+        config = PartnerConfig(
+            name="Ada", channels={"telegram": {"send_progress": False}}
+        )
         runner = _runner(partners_root, config)
 
         await runner.process_message(_msg())
@@ -260,11 +262,29 @@ class TestContextAssembly:
         )
         runner = _runner(partners_root, config)
 
-        await runner.process_message(_msg())
+        await runner.process_message(
+            InboundMessage(
+                channel="telegram",
+                sender_id="42",
+                chat_id="42",
+                content="hello",
+                metadata={
+                    "message_id": "m-1",
+                    "thread_ts": "111.222",
+                    "_cron_job_id": "cron-1",
+                    "_wants_stream": True,
+                },
+            )
+        )
         context = fake_orchestrator.seen_contexts[0]
         assert context.persona_context == "# Soul\nBe kind."
         assert context.enabled_tools == ["web_search"]
         assert context.metadata["mcp_tools_filter"] == ["mcp_github_search"]
+        assert context.metadata["channel_metadata"] == {
+            "message_id": "m-1",
+            "thread_ts": "111.222",
+        }
+        assert context.metadata["cron_job_id"] == "cron-1"
         assert context.language == "zh"
         assert context.active_capability == "chat"
         assert context.metadata["partner_id"] == "ada"

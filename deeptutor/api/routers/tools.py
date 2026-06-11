@@ -17,6 +17,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from deeptutor.api.routers.settings import get_enabled_optional_tools
+from deeptutor.core.metadata_i18n import tool_description_i18n
 from deeptutor.core.tool_protocol import BaseTool, ToolDefinition, ToolPromptHints
 from deeptutor.tools.builtin import (
     BUILTIN_TOOL_TYPES,
@@ -60,6 +61,7 @@ class ToolHintsPayload(BaseModel):
 class BuiltinToolPayload(BaseModel):
     name: str
     description: str
+    description_i18n: dict[Literal["en", "zh"], str] = {}
     parameters: list[ToolParameterPayload]
     hints: dict[Literal["en", "zh"], ToolHintsPayload]
     aliases: list[str] = []
@@ -133,6 +135,7 @@ def _build_tool_payload(
     coming_soon: bool = False,
 ) -> BuiltinToolPayload:
     name, description, parameters = _serialise_definition(tool.get_definition())
+    descriptions = tool_description_i18n(name, description)
     toggleable = (not coming_soon) and (name in USER_TOGGLEABLE_TOOL_NAMES)
     if coming_soon:
         enabled = False
@@ -142,7 +145,8 @@ def _build_tool_payload(
         enabled = True
     return BuiltinToolPayload(
         name=name,
-        description=description,
+        description=descriptions.get("en") or description,
+        description_i18n=descriptions,
         parameters=parameters,
         hints={
             "en": _serialise_hints(tool.get_prompt_hints(language="en")),
@@ -188,6 +192,14 @@ async def list_builtin_tools() -> ToolsListResponse:
             continue
         seen.add(payload.name)
         deduped.append(payload)
+    # Toggleable tools outside the user's admin grant don't exist for them:
+    # hidden here so the settings page and composer match what turn_runtime
+    # will actually allow.
+    from deeptutor.multi_user.tool_access import allowed_optional_tools
+
+    allowed = allowed_optional_tools()
+    if allowed is not None:
+        deduped = [p for p in deduped if not p.toggleable or p.name in allowed]
     return ToolsListResponse(
         tools=deduped,
         enabled_optional_tools=sorted(enabled_optional),

@@ -198,6 +198,201 @@ async def test_network_settings_roundtrip_normalizes_cors_origins(
     assert response["auth"]["cross_site_cookie_ready"] is True
 
 
+@pytest.mark.asyncio
+async def test_mineru_settings_roundtrip_redacts_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+
+    payload = settings_router.MinerUSettingsUpdate(
+        mode="cloud",
+        api_base_url="https://mineru.net/",
+        api_token="secret-token",
+        model_version="vlm",
+    )
+    response = await settings_router.update_mineru_settings(payload)
+
+    # The raw token never leaves the backend; only a boolean flag does.
+    assert response["api_token_set"] is True
+    assert "api_token" not in response["settings"]
+    assert response["settings"]["mode"] == "cloud"
+    assert response["settings"]["api_base_url"] == "https://mineru.net"
+    assert response["settings"]["model_version"] == "vlm"
+    # Persisted on disk under the canonical key.
+    assert service.load_mineru()["api_token"] == "secret-token"
+
+
+@pytest.mark.asyncio
+async def test_mineru_token_tristate_keep_then_clear(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+    service.save_mineru({"mode": "cloud", "api_token": "keep-me"})
+
+    # api_token=None → keep the stored token.
+    await settings_router.update_mineru_settings(
+        settings_router.MinerUSettingsUpdate(mode="cloud", api_token=None)
+    )
+    assert service.load_mineru()["api_token"] == "keep-me"
+
+    # api_token="" → explicitly clear it.
+    await settings_router.update_mineru_settings(
+        settings_router.MinerUSettingsUpdate(mode="cloud", api_token="")
+    )
+    assert service.load_mineru()["api_token"] == ""
+
+
+@pytest.mark.asyncio
+async def test_mineru_test_connection_reports_missing_token(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+
+    result = await settings_router.test_mineru_connection(
+        settings_router.MinerUSettingsUpdate(mode="cloud", api_token="")
+    )
+    assert result["ok"] is False
+    assert "token" in result["message"].lower()
+
+
+@pytest.mark.asyncio
+async def test_mineru_payload_includes_local_cli_probe(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    from deeptutor.tools.question import mineru_backend
+
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+    monkeypatch.setattr(
+        mineru_backend,
+        "local_cli_probe",
+        lambda *a: {"found": True, "command": "mineru", "path": "/env/bin/mineru"},
+    )
+
+    payload = await settings_router.get_mineru_settings()
+    assert payload["local_cli"] == {
+        "found": True,
+        "command": "mineru",
+        "path": "/env/bin/mineru",
+    }
+
+
+@pytest.mark.asyncio
+async def test_mineru_test_connection_local_mode(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    from deeptutor.tools.question import mineru_backend
+
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    monkeypatch.setattr(settings_router, "get_runtime_settings_service", lambda: service)
+
+    # CLI present → ok with version detail.
+    monkeypatch.setattr(
+        mineru_backend,
+        "local_cli_probe",
+        lambda *a: {"found": True, "command": "mineru", "path": "/env/bin/mineru"},
+    )
+    monkeypatch.setattr(mineru_backend, "local_cli_version", lambda cmd: "mineru, version 2.5.0")
+    result = await settings_router.test_mineru_connection(
+        settings_router.MinerUSettingsUpdate(mode="local")
+    )
+    assert result["ok"] is True
+    assert "2.5.0" in result["message"]
+
+    # CLI absent → actionable failure message.
+    monkeypatch.setattr(
+        mineru_backend, "local_cli_probe", lambda *a: {"found": False, "command": "", "path": ""}
+    )
+    result = await settings_router.test_mineru_connection(
+        settings_router.MinerUSettingsUpdate(mode="local")
+    )
+    assert result["ok"] is False
+    assert "not found" in result["message"].lower()
+
+    # Bad configured path → message points at the path, not at PATH install.
+    monkeypatch.setattr(
+        mineru_backend,
+        "local_cli_probe",
+        lambda *a: {"found": False, "command": "", "path": "/bad/mineru", "source": "configured"},
+    )
+    result = await settings_router.test_mineru_connection(
+        settings_router.MinerUSettingsUpdate(mode="local", local_cli_path="/bad/mineru")
+    )
+    assert result["ok"] is False
+    assert "/bad/mineru" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_mineru_models_download_start_requires_downloader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from deeptutor.tools.question import mineru_models
+
+    monkeypatch.setattr(
+        mineru_models, "resolve_models_downloader", lambda p: {"found": False, "path": ""}
+    )
+    result = await settings_router.start_mineru_models_download(
+        settings_router.MinerUModelDownloadPayload()
+    )
+    assert result["ok"] is False
+    assert "not found" in result["message"].lower()
+
+    # Configured CLI without a sibling downloader → message names the path.
+    monkeypatch.setattr(
+        mineru_models,
+        "resolve_models_downloader",
+        lambda p: {"found": False, "path": "/env/bin/mineru-models-download"},
+    )
+    result = await settings_router.start_mineru_models_download(
+        settings_router.MinerUModelDownloadPayload(local_cli_path="/env/bin/mineru")
+    )
+    assert result["ok"] is False
+    assert "/env/bin/mineru-models-download" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_mineru_models_download_start_and_status_passthrough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from deeptutor.tools.question import mineru_models
+
+    calls: dict[str, object] = {}
+
+    class _FakeManager:
+        def start(self, **kwargs):
+            calls.update(kwargs)
+            return {"ok": True, "message": ""}
+
+        def status(self, cursor=0):
+            return {"state": "running", "lines": ["l1"], "next_cursor": 1, "message": ""}
+
+        def cancel(self):
+            return {"ok": True, "message": ""}
+
+    monkeypatch.setattr(
+        mineru_models,
+        "resolve_models_downloader",
+        lambda p: {"found": True, "path": "/env/bin/mineru-models-download"},
+    )
+    monkeypatch.setattr(mineru_models, "get_model_download_manager", lambda: _FakeManager())
+
+    result = await settings_router.start_mineru_models_download(
+        settings_router.MinerUModelDownloadPayload(
+            model_type="all", source="modelscope", endpoint="https://hf-mirror.com"
+        )
+    )
+    assert result["ok"] is True
+    assert calls["downloader"] == "/env/bin/mineru-models-download"
+    assert calls["model_type"] == "all"
+    assert calls["source"] == "modelscope"
+
+    status = await settings_router.mineru_models_download_status(cursor=0)
+    assert status["lines"] == ["l1"]
+    cancel = await settings_router.cancel_mineru_models_download()
+    assert cancel["ok"] is True
+
+
 def test_embedding_provider_choices_use_full_endpoint_urls() -> None:
     embedding = {item["value"]: item for item in settings_router._provider_choices()["embedding"]}
 

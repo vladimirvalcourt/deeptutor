@@ -113,7 +113,7 @@ export default function ModuleTree({
   if (sorted.length === 0) {
     return (
       <div className="text-sm text-[var(--muted-foreground)] px-2 py-1">
-        {t("guidedLearning.noModulesLoaded")}
+        {t("masteryPath.noModulesLoaded")}
       </div>
     );
   }

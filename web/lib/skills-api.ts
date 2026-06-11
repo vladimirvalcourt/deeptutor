@@ -4,10 +4,14 @@ import { invalidateClientCache, withClientCache } from "@/lib/client-cache";
 const SKILLS_CACHE_PREFIX = "skills:";
 const SKILL_TAGS_CACHE_KEY = `${SKILLS_CACHE_PREFIX}tags`;
 
+export type SkillSource = "user" | "builtin" | "admin";
+
 export interface SkillInfo {
   name: string;
   description: string;
   tags: string[];
+  source?: SkillSource;
+  read_only?: boolean;
 }
 
 export interface SkillDetail extends SkillInfo {
@@ -26,6 +30,10 @@ export interface UpdateSkillPayload {
   content?: string;
   rename_to?: string;
   tags?: string[];
+}
+
+function normalizeSource(raw: unknown): SkillSource {
+  return raw === "builtin" || raw === "admin" ? raw : "user";
 }
 
 function normalizeTags(raw: unknown): string[] {
@@ -69,10 +77,18 @@ export async function listSkills(options?: {
       const data = await asJson(response);
       const items = Array.isArray(data?.skills) ? data.skills : [];
       return items.map(
-        (item: { name?: unknown; description?: unknown; tags?: unknown }) => ({
+        (item: {
+          name?: unknown;
+          description?: unknown;
+          tags?: unknown;
+          source?: unknown;
+          read_only?: unknown;
+        }) => ({
           name: String(item?.name ?? ""),
           description: String(item?.description ?? ""),
           tags: normalizeTags(item?.tags),
+          source: normalizeSource(item?.source),
+          read_only: Boolean(item?.read_only),
         }),
       );
     },
@@ -93,6 +109,8 @@ export async function getSkill(name: string): Promise<SkillDetail> {
     description: String(data?.description ?? ""),
     content: String(data?.content ?? ""),
     tags: normalizeTags(data?.tags),
+    source: normalizeSource(data?.source),
+    read_only: Boolean(data?.read_only),
   };
 }
 

@@ -27,8 +27,8 @@ class BaseChannel(ABC):
     name: str = "base"
     display_name: str = "Base"
     transcription_api_key: str = ""
-    # Effective delivery flags for this channel instance — the manager sets
-    # them to (partner-level flag AND per-channel override) at init time.
+    # Effective delivery flags for this channel instance; the manager resolves
+    # them from the channel's own config at init time.
     send_progress: bool = True
     send_tool_hints: bool = True
 

@@ -4,10 +4,10 @@
 
 @layer base {
   /* ────────────────────────────────────────────────────────────────────────
-     Theme palettes — four families that intentionally pair on two axes:
-       • Cream (:root) and Dark (.dark)  → warm family, terracotta accent
-       • Snow (.theme-snow) and Glass (.theme-glass) → cool family,
-         blue and purple accents respectively
+     Theme palettes — four families:
+       • Default (.theme-snow) → pure-white neutral greys, blue accent
+       • Cream (:root) and Dark (.dark) → warm family, terracotta accent
+       • Glass (.theme-glass) → translucent purple on near-black
      Tokens that every theme must publish:
        --background, --foreground, --card / --popover (+ their -foreground),
        --primary (+ -foreground), --secondary, --muted (+ -foreground),
@@ -70,39 +70,32 @@
     --overlay: rgba(0, 0, 0, 0.6);
   }
 
-  /* Snow — near-white cool canvas, the cool-family counterpart to Cream.
-     Bg reads as off-white; the blue tint only surfaces on filled blocks
-     and against the royal-blue primary. Saturation kept very low so it
-     doesn't read as "baby blue paper". */
+  /* Default — pure-white neutral canvas (theme id "snow" kept for stored
+     preferences). No tint anywhere: flat #fff bg, plain grey surfaces and
+     borders. The only chroma is the blue primary on interactive accents,
+     in the spirit of Codex/ChatGPT chrome. */
   .theme-snow {
     color-scheme: light;
-    --background: #f9fbfd;
-    --foreground: #0e1a2e;
+    --background: #ffffff;
+    --foreground: #0d0d0d;
     --card: #ffffff;
-    --card-foreground: #0e1a2e;
+    --card-foreground: #0d0d0d;
     --popover: #ffffff;
-    --popover-foreground: #0e1a2e;
-    --primary: #1d4ed8;
+    --popover-foreground: #0d0d0d;
+    --primary: #2563eb;
     --primary-foreground: #ffffff;
-    --secondary: #ebf0f4;
-    --secondary-foreground: #0e1a2e;
-    --muted: #e5ebf1;
-    --muted-foreground: #4d5d77;
-    --accent: #dbe3eb;
-    --accent-foreground: #0e1a2e;
-    --destructive: #c7281f;
+    --secondary: #f7f7f7;
+    --secondary-foreground: #0d0d0d;
+    --muted: #f2f2f2;
+    --muted-foreground: #6e6e6e;
+    --accent: #ececec;
+    --accent-foreground: #0d0d0d;
+    --destructive: #d92d20;
     --destructive-foreground: #ffffff;
-    --border: #cdd9e4;
-    --input: #cdd9e4;
-    --ring: #1d4ed8;
-    --overlay: rgba(15, 23, 42, 0.42);
-  }
-
-  .theme-snow body {
-    /* Very gentle top-to-bottom cool shift — almost imperceptible,
-       kept just enough to avoid the "flat paper" feel of a single wash. */
-    background: linear-gradient(180deg, #fbfcfe 0%, #eef3f8 100%);
-    background-attachment: fixed;
+    --border: #e5e5e5;
+    --input: #e5e5e5;
+    --ring: #2563eb;
+    --overlay: rgba(0, 0, 0, 0.4);
   }
 
   /* Glass — translucent purple panels on near-black. Slightly brighter
@@ -263,7 +256,7 @@
 
 /* ─── Prose: base ─── */
 .prose {
-  @apply font-serif text-[15px];
+  @apply font-serif text-[16px];
 }
 
 .prose pre {
@@ -702,6 +695,11 @@
   transition: padding-right 220ms ease-out;
   padding-right: 0;
 }
+/* While the viewer is being drag-resized, kill the squeeze transition so the
+   chat column tracks the panel edge frame-for-frame instead of lagging. */
+:root[data-viewer-resizing="true"] .chat-preview-shell {
+  transition: none;
+}
 @media (min-width: 1024px) {
   /* The wider composer-side preview drawer (pre-send attachment peek)
      gets the largest squeeze. */
@@ -710,14 +708,10 @@
   }
   /* Viewer panel (tabbed file/web preview, opened from message attachments
      or assistant links) is next-widest. Wins over the activity panel when
-     both are open. */
+     both are open. Width is user-resizable, so the squeeze tracks the
+     ``--viewer-width`` var the panel writes (falls back to 620px). */
   .chat-preview-shell[data-preview-open="false"][data-viewer-open="true"] {
-    padding-right: min(620px, 92vw);
-  }
-  /* Activity panel — floating cards on the right. Smaller squeeze so the
-     chat column doesn't get crushed when only the activity is open. */
-  .chat-preview-shell[data-preview-open="false"][data-viewer-open="false"][data-activity-open="true"] {
-    padding-right: min(320px, 92vw);
+    padding-right: min(var(--viewer-width, 620px), 92vw);
   }
 }
 

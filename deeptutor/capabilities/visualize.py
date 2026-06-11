@@ -205,9 +205,7 @@ class VisualizeCapability(BaseCapability):
                     # Repair wraps code inside a JSON string field; large/complex
                     # SVGs can trip JSON-mode escaping. Fall back to the draft so
                     # the user still gets a rendered result.
-                    logger.warning(
-                        "Visualize repair failed (%s); using unvalidated draft.", exc
-                    )
+                    logger.warning("Visualize repair failed (%s); using unvalidated draft.", exc)
                     review = ReviewResult(
                         optimized_code=code,
                         changed=False,

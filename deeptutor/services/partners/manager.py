@@ -37,6 +37,9 @@ logger = logging.getLogger(__name__)
 
 _RESERVED_NAMES = {"workspace", "media", "sessions", "_souls"}
 _ID_SAFE_RE = re.compile(r"[^a-z0-9-]+")
+LEGACY_GLOBAL_DELIVERY_KEYS = frozenset(
+    {"send_progress", "send_tool_hints", "sendProgress", "sendToolHints"}
+)
 
 # Substrings (case-insensitive) on channel field names that flag a value as a
 # secret which must be masked before being serialised in non-edit responses.
@@ -79,6 +82,13 @@ def mask_channel_secrets(channels: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(walked, dict):  # defensive — should not happen
         return {}
     return walked
+
+
+def strip_legacy_global_delivery(channels: dict[str, Any]) -> dict[str, Any]:
+    """Remove deprecated top-level delivery switches from channel config."""
+    if not isinstance(channels, dict):
+        return {}
+    return {k: v for k, v in channels.items() if k not in LEGACY_GLOBAL_DELIVERY_KEYS}
 
 
 def slugify_partner_id(name: str) -> str:
@@ -148,12 +158,13 @@ class PartnerInstance:
         """Serialise to a JSON-friendly dict (channel shapes as in TutorBot:
         names-only by default, masked dict for detail views, raw only for the
         explicitly-opt-in edit form)."""
+        source_channels = strip_legacy_global_delivery(self.config.channels)
         if include_secrets:
-            channels: Any = self.config.channels
+            channels: Any = source_channels
         elif mask_secrets:
-            channels = mask_channel_secrets(self.config.channels)
+            channels = mask_channel_secrets(source_channels)
         else:
-            channels = list(self.config.channels.keys())
+            channels = list(source_channels.keys())
 
         return {
             "partner_id": self.partner_id,
@@ -237,7 +248,7 @@ class PartnerManager:
             return PartnerConfig(
                 name=data.get("name", partner_id),
                 description=data.get("description", ""),
-                channels=data.get("channels", {}) or {},
+                channels=strip_legacy_global_delivery(data.get("channels", {}) or {}),
                 llm_selection=data.get("llm_selection"),
                 backup_llm_selection=data.get("backup_llm_selection"),
                 model=data.get("model"),
@@ -270,7 +281,7 @@ class PartnerManager:
         data: dict[str, Any] = {
             "name": config.name,
             "description": config.description,
-            "channels": config.channels,
+            "channels": strip_legacy_global_delivery(config.channels),
             "language": config.language,
             "emoji": config.emoji,
             "color": config.color,
@@ -336,7 +347,7 @@ class PartnerManager:
 
         bus = MessageBus()
         store = self.session_store(partner_id)
-        runner = PartnerRunner(partner_id, config, bus, store)
+        runner = PartnerRunner(partner_id, config, bus, store, save_config=self.save_config)
 
         try:
             channel_manager = self._build_channel_manager(config, bus, partner_id=partner_id)

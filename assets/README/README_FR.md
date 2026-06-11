@@ -272,7 +272,7 @@ Extras utiles pour les développeurs :
 
 ```bash
 pip install -e ".[dev]"             # outils tests/lint
-pip install -e ".[tutorbot]"        # moteur TutorBot + SDKs canaux
+pip install -e ".[partners]"        # SDKs de canaux Partners + client MCP
 pip install -e ".[matrix]"          # canal Matrix sans E2EE/libolm
 pip install -e ".[matrix-e2e]"      # E2EE Matrix ; nécessite libolm
 pip install -e ".[math-animator]"   # addon Manim ; nécessite LaTeX/ffmpeg/libs système

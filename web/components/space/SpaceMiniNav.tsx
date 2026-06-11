@@ -12,7 +12,7 @@ export default function SpaceMiniNav() {
   return (
     <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-[var(--border)] bg-[var(--card)]">
       <div className="px-5 pb-4 pt-6">
-        <h1 className="text-[19px] font-semibold leading-tight tracking-tight text-[var(--foreground)]">
+        <h1 className="font-serif text-[19px] font-semibold leading-tight tracking-tight text-[var(--foreground)]">
           {t("Space")}
         </h1>
         <p className="mt-1.5 text-[12.5px] leading-snug text-[var(--muted-foreground)]/80">

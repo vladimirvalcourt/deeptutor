@@ -225,7 +225,7 @@ Bots require the `[tutorbot]` extra (or the equivalent in `packaging/deeptutor-c
 
 ```bash
 # Full server + TutorBot
-pip install -e ".[tutorbot]"
+pip install -e ".[partners]"
 
 # CLI-only + TutorBot
 pip install -e "./packaging/deeptutor-cli[tutorbot]"

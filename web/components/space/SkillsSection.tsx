@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import {
   Check,
   ChevronDown,
+  Eye,
   Loader2,
+  Lock,
   Pencil,
   Plus,
   Sparkles,
@@ -40,8 +43,31 @@ interface SkillEditorState {
   error: string | null;
 }
 
+interface SkillViewerState {
+  name: string;
+  source?: string;
+  readOnly: boolean;
+  description: string;
+  content: string;
+  loading: boolean;
+  error: string | null;
+}
+
+// Lazy-load the markdown renderer so the heavier markdown deps only ship
+// when a user actually opens a skill viewer (matches MemorySection).
+const SkillMarkdown = dynamic(
+  () => import("@/components/common/SimpleMarkdownRenderer"),
+  { ssr: false },
+);
+
 function normalizeTag(value: string): string {
   return value.trim().toLowerCase();
+}
+
+/** Drop the YAML frontmatter block so the viewer shows just the playbook. */
+function stripFrontmatter(md: string): string {
+  const match = md.match(/^---\s*\n[\s\S]*?\n---\s*\n?/);
+  return match ? md.slice(match[0].length) : md;
 }
 
 export default function SkillsSection() {
@@ -52,6 +78,7 @@ export default function SkillsSection() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [editor, setEditor] = useState<SkillEditorState | null>(null);
+  const [viewer, setViewer] = useState<SkillViewerState | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
   const [filterTag, setFilterTag] = useState<string | "all" | "untagged">(
@@ -156,6 +183,40 @@ export default function SkillsSection() {
           ? {
               ...prev,
               saving: false,
+              error: err instanceof Error ? err.message : String(err),
+            }
+          : prev,
+      );
+    }
+  }, []);
+
+  const openView = useCallback(async (skill: SkillInfo) => {
+    setViewer({
+      name: skill.name,
+      source: skill.source,
+      readOnly: Boolean(skill.read_only),
+      description: skill.description,
+      content: "",
+      loading: true,
+      error: null,
+    });
+    try {
+      const detail = await getSkill(skill.name);
+      setViewer({
+        name: detail.name,
+        source: detail.source ?? skill.source,
+        readOnly: Boolean(detail.read_only),
+        description: detail.description,
+        content: detail.content,
+        loading: false,
+        error: null,
+      });
+    } catch (err) {
+      setViewer((prev) =>
+        prev
+          ? {
+              ...prev,
+              loading: false,
               error: err instanceof Error ? err.message : String(err),
             }
           : prev,
@@ -333,7 +394,7 @@ export default function SkillsSection() {
         icon={Wand2}
         title={t("Skills")}
         description={t(
-          "Short markdown playbooks that shape the assistant's behavior. Pick one from the composer or let Auto choose.",
+          "Capability playbooks the model reads on demand. Built-in and preset skills are read-only.",
         )}
         meta={
           <span className="rounded-full border border-[var(--border)] bg-[var(--card)] px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)]">
@@ -533,10 +594,28 @@ export default function SkillsSection() {
         </div>
       ) : (
         <ul className="grid gap-3 md:grid-cols-2">
-          {filteredSkills.map((skill) => (
+          {filteredSkills.map((skill) => {
+            const readOnly = Boolean(skill.read_only);
+            const sourceBadge =
+              skill.source === "builtin"
+                ? t("Built-in")
+                : skill.source === "admin"
+                  ? t("Preset")
+                  : null;
+            return (
             <li
               key={skill.name}
-              className="group relative flex flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:border-[var(--foreground)]/30 hover:shadow-md"
+              role="button"
+              tabIndex={0}
+              onClick={() => void openView(skill)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  void openView(skill);
+                }
+              }}
+              title={t("View skill")}
+              className="group relative flex cursor-pointer flex-col rounded-xl border border-[var(--border)] bg-[var(--card)] p-4 shadow-sm transition-all hover:border-[var(--foreground)]/30 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40"
             >
               <div className="mb-2 flex items-start justify-between gap-2">
                 <div className="flex items-start gap-2.5">
@@ -544,8 +623,16 @@ export default function SkillsSection() {
                     <Wand2 size={13} strokeWidth={1.6} />
                   </span>
                   <div className="min-w-0">
-                    <div className="truncate text-[14px] font-semibold tracking-tight text-[var(--foreground)]">
-                      {skill.name}
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate text-[14px] font-semibold tracking-tight text-[var(--foreground)]">
+                        {skill.name}
+                      </span>
+                      {sourceBadge ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                          {readOnly ? <Lock size={9} /> : null}
+                          {sourceBadge}
+                        </span>
+                      ) : null}
                     </div>
                     {skill.description ? (
                       <p className="mt-0.5 line-clamp-2 text-[12px] leading-relaxed text-[var(--muted-foreground)]">
@@ -558,27 +645,39 @@ export default function SkillsSection() {
                     )}
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <button
-                    onClick={() => void openEdit(skill.name)}
-                    className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-                    title={t("Edit")}
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    onClick={() => void handleDelete(skill.name)}
-                    disabled={deleting === skill.name}
-                    className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30"
-                    title={t("Delete")}
-                  >
-                    {deleting === skill.name ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <Trash2 size={13} />
-                    )}
-                  </button>
-                </div>
+                {readOnly ? (
+                  <span className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100">
+                    <Eye size={13} />
+                  </span>
+                ) : (
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void openEdit(skill.name);
+                      }}
+                      className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                      title={t("Edit")}
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDelete(skill.name);
+                      }}
+                      disabled={deleting === skill.name}
+                      className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30"
+                      title={t("Delete")}
+                    >
+                      {deleting === skill.name ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Trash2 size={13} />
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {skill.tags && skill.tags.length > 0 ? (
@@ -586,7 +685,10 @@ export default function SkillsSection() {
                   {skill.tags.map((tag) => (
                     <button
                       key={tag}
-                      onClick={() => setFilterTag(tag)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterTag(tag);
+                      }}
                       className="inline-flex items-center gap-1 rounded-full border border-[var(--border)]/60 bg-[var(--muted)]/40 px-2 py-0.5 text-[10.5px] font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)]/30 hover:text-[var(--foreground)]"
                     >
                       <span className="inline-flex h-1.5 w-1.5 rounded-full bg-[var(--foreground)]/40" />
@@ -603,8 +705,82 @@ export default function SkillsSection() {
                 </div>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
+      )}
+
+      {/* Viewer modal — read-only content view, available for every skill */}
+      {viewer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--overlay)] p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setViewer(null)}
+        >
+          <div
+            className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <Wand2 size={14} className="shrink-0 text-[var(--muted-foreground)]" />
+                <h3 className="truncate text-[14px] font-semibold text-[var(--foreground)]">
+                  {viewer.name}
+                </h3>
+                {viewer.readOnly ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[var(--muted)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[var(--muted-foreground)]">
+                    <Lock size={9} />
+                    {viewer.source === "admin" ? t("Preset") : t("Built-in")}
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                {viewer.readOnly ? null : (
+                  <button
+                    onClick={() => {
+                      const name = viewer.name;
+                      setViewer(null);
+                      void openEdit(name);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                    title={t("Edit")}
+                  >
+                    <Pencil size={12} />
+                    {t("Edit")}
+                  </button>
+                )}
+                <button
+                  onClick={() => setViewer(null)}
+                  className="rounded-md p-1.5 text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {viewer.description ? (
+                <p className="mb-3 text-[13px] leading-relaxed text-[var(--muted-foreground)]">
+                  {viewer.description}
+                </p>
+              ) : null}
+              {viewer.loading ? (
+                <div className="flex items-center justify-center py-10 text-[var(--muted-foreground)]">
+                  <Loader2 size={18} className="animate-spin" />
+                </div>
+              ) : viewer.error ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-300">
+                  {viewer.error}
+                </div>
+              ) : (
+                <div className="prose-skill text-[13.5px] leading-relaxed text-[var(--foreground)]">
+                  <SkillMarkdown content={stripFrontmatter(viewer.content)} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Editor modal */}

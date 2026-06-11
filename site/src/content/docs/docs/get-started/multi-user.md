@@ -29,40 +29,47 @@ deeptutor start
 
 - **Full Settings page** at `/settings` — manage LLM / embedding / search providers, API keys, model catalogs, and runtime "Apply".
 - **User management** at `/admin/users` — create, promote, demote, and delete accounts. The public `/register` endpoint is automatically closed once the first admin exists; further accounts go through `POST /api/v1/auth/users` (admin-only).
-- **Grant editor** — for each non-admin user, pick the model profiles, knowledge bases, and skills they may use. Grants carry **logical IDs only**; API keys never cross the grant boundary.
-- **Audit trail** — every grant change and assigned-resource access is appended to `multi-user/_system/audit/usage.jsonl`.
+- **Grant editor** — for each non-admin user, pick the LLM models, knowledge bases, and skills they may use, restrict the system tools (web search, paper search, …) and MCP tools to a whitelist, and switch code execution off entirely. Tool whitelists follow the same semantics as partner configs: *Default* allows everything, *Custom* is an explicit whitelist. Grants carry **logical IDs only**; API keys never cross the grant boundary.
+- **Audit trail** — every grant change and assigned-resource access is appended to `data/system/audit/usage.jsonl`.
 
 ## What ordinary users get
 
-- **Isolated workspace** under `multi-user/<uid>/` — their own chat history (`chat_history.db`), memory, notebooks, and personal knowledge bases. Nothing is shared by default.
+- **Isolated workspace** under `data/users/<uid>/` — their own chat history (`chat_history.db`), memory, notebooks, and personal knowledge bases. Nothing is shared by default.
 - **Read-only access** to admin-assigned knowledge bases and skills, surfaced inline next to their own resources with an "Assigned by admin" badge.
 - **Redacted Settings page** — only theme, language, and a summary of granted models. API keys, base URLs, and provider endpoints are never returned for non-admin requests.
 - **Scoped LLM** — chat turns are routed through the admin-assigned model. If no LLM is granted, the turn is rejected up-front (no silent fallback to the admin's keys).
+- **Scoped tools** — the composer, the `/settings/tools` page, and every turn only expose the system tools and MCP tools inside the user's grant whitelist; code execution honors the per-user switch on top of the deployment sandbox policy.
 
 ## Workspace layout
 
+Everything lives under `data/` — one tree to mount and back up:
+
 ```text
-multi-user/
-├── _system/
+data/
+├── user/                        # Admin workspace (settings, API keys, admin tasks)
+├── system/
 │   ├── auth/users.json          # Hashed credentials, roles
 │   ├── auth/auth_secret         # JWT signing secret (auto-generated)
 │   ├── grants/<uid>.json        # Per-user resource grants (admin-managed)
 │   └── audit/usage.jsonl        # Audit trail
-└── <uid>/
-    ├── user/
-    │   ├── chat_history.db
-    │   ├── settings/interface.json
-    │   └── workspace/{chat,co-writer,book,...}
-    ├── memory/
-    └── knowledge_bases/...
+├── users/<uid>/
+│   ├── user/
+│   │   ├── chat_history.db
+│   │   ├── settings/interface.json
+│   │   └── workspace/{chat,co-writer,book,...}
+│   ├── memory/
+│   └── knowledge_bases/...
+└── partners/<id>/               # Partner workspaces
 ```
+
+Deployments upgraded from the pre-v1.5 layout (a sibling `multi-user/` directory next to `data/`) are migrated automatically on first start: `multi-user/_system` moves to `data/system`, each `multi-user/<uid>` to `data/users/<uid>`.
 
 ## Configuration reference
 
 | Setting | Required | Description |
 |---------|----------|-------------|
 | `data/user/settings/auth.json: enabled` | Yes | Set to `true` to enable multi-user auth. Default `false` (single-user mode — admin paths everywhere). |
-| `multi-user/_system/auth/auth_secret` | Recommended | JWT signing secret. Auto-generated on first authenticated boot if missing. |
+| `data/system/auth/auth_secret` | Recommended | JWT signing secret. Auto-generated on first authenticated boot if missing. |
 | `data/user/settings/auth.json: token_expire_hours` | No | JWT lifetime; defaults to `24`. |
 | `data/user/settings/auth.json: cookie_secure` | HTTPS / cross-site auth | Set `true` to use `SameSite=None; Secure` cookies. Keep `false` for local HTTP. |
 | `data/user/settings/auth.json: username` / `password_hash` | No | Optional headless single-user bootstrap credential. Leave blank when using browser registration. |
@@ -81,7 +88,8 @@ multi-user/
 - ✅ Put DeepTutor behind a reverse proxy (Caddy, nginx, Traefik) with TLS termination
 - ✅ Set `next_public_api_base_external` in `system.json` so the frontend bundle knows where to find the backend
 - ✅ Set `cors_origins` to the exact frontend origin when auth is enabled and Web/API are cross-origin
-- ✅ Back up `multi-user/` regularly
+- ✅ Back up `data/` regularly — accounts, grants, and every workspace live under this one tree
+- ✅ Docker: keep the `./data:/app/data` volume from `docker-compose.yml`. The sandbox runner intentionally mounts only the workspace subtrees (`data/user/workspace`, `data/users`) — never `data/system` or `data/user/settings`, which hold auth state and API keys
 
 ## Caddyfile example
 
@@ -122,7 +130,7 @@ The frontend bundle may be cached. With Docker, recreate the container. From sou
 
 ### First login works but no admin link
 
-Confirm `multi-user/_system/auth/users.json` has `"role": "admin"` on the first user. If not, manually set it and restart.
+Confirm `data/system/auth/users.json` has `"role": "admin"` on the first user. If not, manually set it and restart.
 
 ### `Cannot decode JWT` after restart
 

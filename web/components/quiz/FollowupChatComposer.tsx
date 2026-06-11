@@ -55,7 +55,7 @@ const QuestionBankPicker = dynamic(
   () => import("@/components/chat/QuestionBankPicker"),
   { ssr: false },
 );
-const SkillsPicker = dynamic(() => import("@/components/chat/SkillsPicker"), {
+const PersonaPicker = dynamic(() => import("@/components/chat/PersonaPicker"), {
   ssr: false,
 });
 const MemoryPicker = dynamic(() => import("@/components/chat/MemoryPicker"), {
@@ -107,8 +107,6 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   const capBtnRef = useRef<HTMLButtonElement>(null);
   const spaceMenuRef = useRef<HTMLDivElement>(null);
   const spaceBtnRef = useRef<HTMLButtonElement>(null);
-  const kbMenuRef = useRef<HTMLDivElement>(null);
-  const kbBtnRef = useRef<HTMLButtonElement>(null);
   const dragCounter = useRef(0);
 
   // ── Composer local state ──────────────────────────────────────
@@ -120,7 +118,6 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   const [dragging, setDragging] = useState(false);
   const [capMenuOpen, setCapMenuOpen] = useState(false);
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
-  const [kbMenuOpen, setKbMenuOpen] = useState(false);
 
   const [selectedKnowledgeBases, setSelectedKnowledgeBases] = useState<
     string[]
@@ -137,8 +134,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   const [selectedQuestionEntries, setSelectedQuestionEntries] = useState<
     SelectedQuestionEntry[]
   >([]);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [skillsAutoMode, setSkillsAutoMode] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
   const [selectedMemoryFiles, setSelectedMemoryFiles] = useState<
     SpaceMemoryFile[]
   >([]);
@@ -148,7 +144,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   const [showBookPicker, setShowBookPicker] = useState(false);
   const [showHistoryPicker, setShowHistoryPicker] = useState(false);
   const [showQuestionBankPicker, setShowQuestionBankPicker] = useState(false);
-  const [showSkillsPicker, setShowSkillsPicker] = useState(false);
+  const [showPersonaPicker, setShowPersonaPicker] = useState(false);
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
 
   // ── Shared data (KBs + LLMs) ──────────────────────────────────
@@ -208,9 +204,9 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
     setLLMSelection(activeLLMDefault);
   }, [activeLLMDefault, llmSelection]);
 
-  // Click-outside handlers for menu chrome (cap / space / KB).
+  // Click-outside handlers for menu chrome (cap / space).
   useEffect(() => {
-    if (!capMenuOpen && !spaceMenuOpen && !kbMenuOpen) return;
+    if (!capMenuOpen && !spaceMenuOpen) return;
     const handler = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -232,19 +228,10 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
       ) {
         setSpaceMenuOpen(false);
       }
-      if (
-        kbMenuOpen &&
-        kbMenuRef.current &&
-        !kbMenuRef.current.contains(target) &&
-        kbBtnRef.current &&
-        !kbBtnRef.current.contains(target)
-      ) {
-        setKbMenuOpen(false);
-      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [capMenuOpen, spaceMenuOpen, kbMenuOpen]);
+  }, [capMenuOpen, spaceMenuOpen]);
 
   // ── Attachment helpers ────────────────────────────────────────
   const showAttachmentError = useCallback((message: string) => {
@@ -403,21 +390,15 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
   const handleSelectQuestionBankPicker = useCallback(() => {
     setShowQuestionBankPicker(true);
   }, []);
-  const handleSelectSkillsPicker = useCallback(() => {
-    setShowSkillsPicker(true);
+  const handleSelectPersonaPicker = useCallback(() => {
+    setShowPersonaPicker(true);
   }, []);
   const handleSelectMemoryPicker = useCallback(() => {
     setShowMemoryPicker(true);
   }, []);
 
-  const handleToggleSkill = useCallback((skill: string) => {
-    setSelectedSkills((prev) =>
-      prev.includes(skill) ? prev.filter((s) => s !== skill) : [...prev, skill],
-    );
-  }, []);
-  const handleSetSkillsAuto = useCallback((auto: boolean) => {
-    setSkillsAutoMode(auto);
-    if (auto) setSelectedSkills([]);
+  const handleClearPersona = useCallback(() => {
+    setSelectedPersona(null);
   }, []);
   const handleToggleMemoryFile = useCallback((file: SpaceMemoryFile) => {
     setSelectedMemoryFiles((prev) =>
@@ -499,8 +480,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         selectedNotebookRecords.length > 0 ||
         selectedHistorySessions.length > 0 ||
         selectedQuestionEntries.length > 0 ||
-        selectedSkills.length > 0 ||
-        skillsAutoMode ||
+        !!selectedPersona ||
         selectedMemoryFiles.length > 0;
       if (!hasContent && !hasReferences) return;
       if (thread.isStreaming) return;
@@ -539,7 +519,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         mime_type: a.mimeType,
       }));
 
-      const skillsPayload = skillsAutoMode ? ["auto"] : [...selectedSkills];
+      const personaPayload = selectedPersona ?? undefined;
 
       const baseConfig = buildQuizFollowupConfig(
         context.question,
@@ -572,7 +552,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         historyReferences: historyReferencesPayload,
         bookReferences: bookReferencesPayload,
         questionNotebookReferences: questionNotebookReferencesPayload,
-        skills: skillsPayload,
+        persona: personaPayload,
         llmSelection,
       });
 
@@ -582,8 +562,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
       setSelectedNotebookRecords([]);
       setSelectedHistorySessions([]);
       setSelectedQuestionEntries([]);
-      setSelectedSkills([]);
-      setSkillsAutoMode(false);
+      setSelectedPersona(null);
       setSelectedMemoryFiles([]);
     },
     [
@@ -602,8 +581,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
       selectedMemoryFiles,
       selectedNotebookRecords.length,
       selectedQuestionEntries.length,
-      selectedSkills,
-      skillsAutoMode,
+      selectedPersona,
       thread.isStreaming,
       thread.messages.length,
       thread.sessionId,
@@ -636,13 +614,10 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         capBtnRef={capBtnRef}
         spaceMenuRef={spaceMenuRef}
         spaceBtnRef={spaceBtnRef}
-        kbMenuRef={kbMenuRef}
-        kbBtnRef={kbBtnRef}
         dragCounter={dragCounter}
         dragging={dragging}
         capMenuOpen={capMenuOpen}
         spaceMenuOpen={spaceMenuOpen}
-        kbMenuOpen={kbMenuOpen}
         hasMessages={
           thread.messages.filter((m) => m.role !== "system").length > 0
         }
@@ -660,8 +635,7 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         selectedHistorySessions={selectedHistorySessions}
         selectedQuestionEntries={selectedQuestionEntries}
         notebookReferenceGroups={notebookReferenceGroups}
-        selectedSkills={selectedSkills}
-        skillsAutoMode={skillsAutoMode}
+        selectedPersona={selectedPersona}
         selectedMemoryFiles={selectedMemoryFiles}
         selectedKnowledgeBases={selectedKnowledgeBases}
         isStreaming={thread.isStreaming}
@@ -672,17 +646,15 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
         capabilities={FOLLOWUP_CAPABILITIES}
         onSetCapMenuOpen={setCapMenuOpen}
         onSetSpaceMenuOpen={setSpaceMenuOpen}
-        onSetKbMenuOpen={setKbMenuOpen}
         onToggleKB={handleToggleKB}
         onSelectLLM={setLLMSelection}
         onSelectNotebookPicker={handleSelectNotebookPicker}
         onSelectBookPicker={handleSelectBookPicker}
         onSelectHistoryPicker={handleSelectHistoryPicker}
         onSelectQuestionBankPicker={handleSelectQuestionBankPicker}
-        onSelectSkillsPicker={handleSelectSkillsPicker}
+        onSelectPersonaPicker={handleSelectPersonaPicker}
         onSelectMemoryPicker={handleSelectMemoryPicker}
-        onToggleSkill={handleToggleSkill}
-        onSetSkillsAuto={handleSetSkillsAuto}
+        onClearPersona={handleClearPersona}
         onToggleMemoryFile={handleToggleMemoryFile}
         onSend={handleSend}
         onRemoveAttachment={removeAttachment}
@@ -736,15 +708,13 @@ function FollowupChatComposerImpl({ context }: FollowupChatComposerProps) {
           setShowQuestionBankPicker(false);
         }}
       />
-      <SkillsPicker
-        open={showSkillsPicker}
-        initialAuto={skillsAutoMode}
-        initialSkills={selectedSkills}
-        onClose={() => setShowSkillsPicker(false)}
-        onApply={(selection: { auto: boolean; skills: string[] }) => {
-          setSkillsAutoMode(selection.auto);
-          setSelectedSkills(selection.auto ? [] : selection.skills);
-          setShowSkillsPicker(false);
+      <PersonaPicker
+        open={showPersonaPicker}
+        initialPersona={selectedPersona}
+        onClose={() => setShowPersonaPicker(false)}
+        onApply={(persona: string | null) => {
+          setSelectedPersona(persona);
+          setShowPersonaPicker(false);
         }}
       />
       <MemoryPicker

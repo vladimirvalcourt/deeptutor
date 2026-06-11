@@ -13,20 +13,15 @@ class Base(BaseModel):
 
 
 class DeliveryOverrides(Base):
-    """Per-channel delivery switches, ANDed with the partner-level flags.
-
-    A channel only receives progress / tool-hint messages when BOTH the
-    partner-level flag (ChannelsConfig) and the channel's own flag are on,
-    so the partner-level switches stay coarse master switches.
-    """
+    """Per-channel delivery switches."""
 
     send_progress: bool = Field(
         default=True,
-        description="Deliver agent narration progress to this channel (ANDed with the partner-level switch).",
+        description="Deliver agent narration progress to this channel.",
     )
     send_tool_hints: bool = Field(
         default=True,
-        description="Deliver one-line tool-call hints to this channel (ANDed with the partner-level switch).",
+        description="Deliver one-line tool-call hints to this channel.",
     )
 
 
@@ -51,10 +46,5 @@ class ChannelsConfig(Base):
 
     model_config = ConfigDict(extra="allow")
 
-    # Both default ON so IM users see the partner's live working process
-    # (per-round narration text + one-line tool calls), mirroring the web
-    # chat's activity trace at IM-appropriate granularity.
-    send_progress: bool = True  # stream agent narration to the channel
-    send_tool_hints: bool = True  # stream tool-call hints (e.g. rag("…"))
     # Outbound delivery failures retry with exponential backoff (1s/2s/4s…).
     send_max_retries: int = 3

@@ -21,6 +21,12 @@ DEFAULT_SYSTEM_SETTINGS: dict[str, Any] = {
     "cors_origins": [],
     "disable_ssl_verify": False,
     "chat_attachment_dir": "",
+    # Enable the restricted-subprocess code-execution sandbox (the `exec` /
+    # `code_execution` tools the office skills — docx/pdf/pptx/xlsx — run on).
+    # Default on so document generation works out of the box across all
+    # deployment shapes; a stronger backend (runner sidecar / bwrap) still
+    # takes precedence when available. Set false to disable host-side exec.
+    "sandbox_allow_subprocess": True,
 }
 
 DEFAULT_AUTH_SETTINGS: dict[str, Any] = {
@@ -39,6 +45,40 @@ DEFAULT_INTEGRATIONS_SETTINGS: dict[str, Any] = {
     "pocketbase_external_url": "",
     "pocketbase_admin_email": "",
     "pocketbase_admin_password": "",
+}
+
+# MinerU PDF parsing backend. ``mode`` selects between a locally-installed
+# MinerU CLI ("local") and the hosted mineru.net cloud API ("cloud"). The
+# cloud branch needs ``api_token``; every other field is a parsing knob that
+# both backends understand. Kept in its own JSON file so the parsing backend
+# can be swapped without touching model/network settings.
+MINERU_MODE_LOCAL = "local"
+MINERU_MODE_CLOUD = "cloud"
+_MINERU_MODES = frozenset({MINERU_MODE_LOCAL, MINERU_MODE_CLOUD})
+_MINERU_MODEL_VERSIONS = frozenset({"pipeline", "vlm"})
+_MINERU_DOWNLOAD_SOURCES = frozenset({"huggingface", "modelscope"})
+
+DEFAULT_MINERU_SETTINGS: dict[str, Any] = {
+    "version": 1,
+    "mode": MINERU_MODE_LOCAL,
+    "api_base_url": "https://mineru.net",
+    "api_token": "",
+    # Optional explicit path to a local MinerU executable. Empty = auto-detect
+    # from PATH. Lets users install MinerU in an isolated env (uv tool / pipx /
+    # separate conda) so its heavy deps never conflict with DeepTutor's.
+    "local_cli_path": "",
+    # Where local-mode model weights download from. ``model_download_endpoint``
+    # is a custom HuggingFace mirror (HF_ENDPOINT, e.g. https://hf-mirror.com);
+    # empty = the source's official address.
+    "model_download_source": "huggingface",
+    "model_download_endpoint": "",
+    "model_version": "pipeline",
+    # "auto" lets MinerU auto-detect; any other value is forwarded verbatim
+    # as the API ``language`` hint (e.g. "ch", "en").
+    "language": "auto",
+    "enable_formula": True,
+    "enable_table": True,
+    "is_ocr": False,
 }
 
 IGNORE_PROCESS_OVERRIDES_ENV = "DEEPTUTOR_IGNORE_PROCESS_ENV_OVERRIDES"
@@ -191,10 +231,26 @@ class RuntimeSettingsService:
         _atomic_write_json(self.path_for("integrations"), payload)
         return payload
 
+    def load_mineru(self, *, include_process_overrides: bool = True) -> dict[str, Any]:
+        payload = self._load_or_create(
+            "mineru",
+            DEFAULT_MINERU_SETTINGS,
+            self._normalize_mineru,
+        )
+        if include_process_overrides:
+            payload = self._apply_mineru_process_overrides(payload)
+        return payload
+
+    def save_mineru(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = self._normalize_mineru({**DEFAULT_MINERU_SETTINGS, **settings})
+        _atomic_write_json(self.path_for("mineru"), payload)
+        return payload
+
     def ensure_defaults(self) -> None:
         self.load_system(include_process_overrides=False)
         self.load_auth(include_process_overrides=False)
         self.load_integrations(include_process_overrides=False)
+        self.load_mineru(include_process_overrides=False)
 
     def render_environment(self) -> dict[str, str]:
         """Render non-model settings into process env names for subprocesses."""
@@ -210,6 +266,7 @@ class RuntimeSettingsService:
             "CORS_ORIGINS": ",".join(system["cors_origins"]),
             "DISABLE_SSL_VERIFY": _bool_env(system["disable_ssl_verify"]),
             "CHAT_ATTACHMENT_DIR": system["chat_attachment_dir"],
+            "DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS": _bool_env(system["sandbox_allow_subprocess"]),
             "AUTH_ENABLED": _bool_env(auth["enabled"]),
             "AUTH_USERNAME": auth["username"],
             "AUTH_PASSWORD_HASH": auth["password_hash"],
@@ -289,6 +346,8 @@ class RuntimeSettingsService:
             payload["disable_ssl_verify"] = value
         if value := self._process_env_value("CHAT_ATTACHMENT_DIR"):
             payload["chat_attachment_dir"] = value
+        if value := self._process_env_value("DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS"):
+            payload["sandbox_allow_subprocess"] = value
         return self._normalize_system(payload)
 
     def _apply_auth_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -322,6 +381,53 @@ class RuntimeSettingsService:
             payload["pocketbase_admin_password"] = value
         return self._normalize_integrations(payload)
 
+    def _apply_mineru_process_overrides(self, settings: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(settings)
+        if value := self._process_env_value("MINERU_MODE"):
+            payload["mode"] = value
+        if value := self._process_env_value("MINERU_API_BASE_URL"):
+            payload["api_base_url"] = value
+        if value := self._process_env_value("MINERU_API_TOKEN"):
+            payload["api_token"] = value
+        if value := self._process_env_value("MINERU_LOCAL_CLI_PATH"):
+            payload["local_cli_path"] = value
+        if value := self._process_env_value("MINERU_MODEL_SOURCE"):
+            payload["model_download_source"] = value
+        if value := self._process_env_value("MINERU_MODEL_DOWNLOAD_ENDPOINT"):
+            payload["model_download_endpoint"] = value
+        if value := self._process_env_value("MINERU_MODEL_VERSION"):
+            payload["model_version"] = value
+        if value := self._process_env_value("MINERU_LANGUAGE"):
+            payload["language"] = value
+        return self._normalize_mineru(payload)
+
+    def _normalize_mineru(self, settings: dict[str, Any]) -> dict[str, Any]:
+        mode = _string(settings.get("mode")).lower()
+        if mode not in _MINERU_MODES:
+            mode = MINERU_MODE_LOCAL
+        model_version = _string(settings.get("model_version")).lower()
+        if model_version not in _MINERU_MODEL_VERSIONS:
+            model_version = "pipeline"
+        download_source = _string(settings.get("model_download_source")).lower()
+        if download_source not in _MINERU_DOWNLOAD_SOURCES:
+            download_source = "huggingface"
+        language = _string(settings.get("language")) or "auto"
+        return {
+            "version": 1,
+            "mode": mode,
+            "api_base_url": _string(settings.get("api_base_url")).rstrip("/")
+            or "https://mineru.net",
+            "api_token": _string(settings.get("api_token")),
+            "local_cli_path": _string(settings.get("local_cli_path")),
+            "model_download_source": download_source,
+            "model_download_endpoint": _string(settings.get("model_download_endpoint")).rstrip("/"),
+            "model_version": model_version,
+            "language": language,
+            "enable_formula": _coerce_bool(settings.get("enable_formula"), True),
+            "enable_table": _coerce_bool(settings.get("enable_table"), True),
+            "is_ocr": _coerce_bool(settings.get("is_ocr"), False),
+        }
+
     def _normalize_system(self, settings: dict[str, Any]) -> dict[str, Any]:
         public_api_base = _string(settings.get("next_public_api_base_external")) or _string(
             settings.get("public_api_base")
@@ -336,6 +442,9 @@ class RuntimeSettingsService:
             "cors_origins": _coerce_origins(settings.get("cors_origins")),
             "disable_ssl_verify": _coerce_bool(settings.get("disable_ssl_verify"), False),
             "chat_attachment_dir": _string(settings.get("chat_attachment_dir")),
+            "sandbox_allow_subprocess": _coerce_bool(
+                settings.get("sandbox_allow_subprocess"), True
+            ),
         }
 
     def _normalize_auth(self, settings: dict[str, Any]) -> dict[str, Any]:
@@ -402,6 +511,10 @@ def load_integrations_settings() -> dict[str, Any]:
     return get_runtime_settings_service().load_integrations()
 
 
+def load_mineru_settings() -> dict[str, Any]:
+    return get_runtime_settings_service().load_mineru()
+
+
 def export_runtime_settings_to_env(*, overwrite: bool = True) -> dict[str, str]:
     return get_runtime_settings_service().export_environment(overwrite=overwrite)
 
@@ -409,12 +522,16 @@ def export_runtime_settings_to_env(*, overwrite: bool = True) -> dict[str, str]:
 __all__ = [
     "DEFAULT_AUTH_SETTINGS",
     "DEFAULT_INTEGRATIONS_SETTINGS",
+    "DEFAULT_MINERU_SETTINGS",
     "DEFAULT_SYSTEM_SETTINGS",
+    "MINERU_MODE_CLOUD",
+    "MINERU_MODE_LOCAL",
     "RuntimeSettingsService",
     "ensure_runtime_settings_files",
     "export_runtime_settings_to_env",
     "get_runtime_settings_service",
     "load_auth_settings",
     "load_integrations_settings",
+    "load_mineru_settings",
     "load_system_settings",
 ]

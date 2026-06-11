@@ -45,28 +45,36 @@ class ErrorType(str, Enum):
         return cls(mapped) if mapped else None
 
 
-class MasteryLevel(int, Enum):
-    LEVEL_1 = 1
-    LEVEL_2 = 2
-    LEVEL_3 = 3
-    LEVEL_4 = 4
-    MASTERED = 5
+# Stages removed in the Mastery Path simplification are mapped onto the nearest
+# surviving stage so progress persisted by the older engine still deserializes.
+_STAGE_LEGACY: dict[str, str] = {
+    "diagnostic_phase1": "diagnostic",
+    "diagnostic_phase2": "diagnostic",
+    "metacognitive_intro": "explain",
+    "plan": "explain",
+    "pretest": "explain",
+    "practice_quiz": "practice",
+    "module_test": "review",
+}
 
 
 class LearningStage(str, Enum):
-    DIAGNOSTIC_PHASE1 = "diagnostic_phase1"
-    DIAGNOSTIC_PHASE2 = "diagnostic_phase2"
-    METACOGNITIVE_INTRO = "metacognitive_intro"
-    PLAN = "plan"
-    PRETEST = "pretest"
+    """The Mastery Path loop: diagnose once, then per knowledge point teach and
+    check understanding, then practice the module, diagnose errors, and schedule
+    spaced review."""
+
+    DIAGNOSTIC = "diagnostic"
     EXPLAIN = "explain"
     FEYNMAN_CHECK = "feynman_check"
-    PRACTICE_QUIZ = "practice_quiz"
     PRACTICE = "practice"
     ERROR_DIAGNOSIS = "error_diagnosis"
-    MODULE_TEST = "module_test"
     REVIEW = "review"
     COMPLETED = "completed"
+
+    @classmethod
+    def _missing_(cls, value: object) -> LearningStage | None:
+        mapped = _STAGE_LEGACY.get(str(value))
+        return cls(mapped) if mapped else None
 
 
 class KnowledgePoint(BaseModel):
@@ -91,15 +99,9 @@ class LearningModule(BaseModel):
 class DiagnosticResult(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    module_mastery: dict[str, float] = Field(default_factory=dict)
-    weak_modules: list[str] = Field(default_factory=list)
-    skipped_modules: list[str] = Field(default_factory=list)
-    inferred_modules: list[str] = Field(default_factory=list)
     total_questions: int = 0
     correct_count: int = 0
-    phase2_correct_count: int = 0
-    phase1_result: dict = Field(default_factory=dict)
-    phase2_results: dict[str, dict] = Field(default_factory=dict)
+    module_mastery: dict[str, float] = Field(default_factory=dict)
 
 
 class QuizAttempt(BaseModel):
@@ -166,7 +168,7 @@ class LearningProgress(BaseModel):
     diagnostic: DiagnosticResult | None = None
     modules: list[LearningModule] = Field(default_factory=list)
     current_module_id: str = ""
-    current_stage: LearningStage = LearningStage.DIAGNOSTIC_PHASE1
+    current_stage: LearningStage = LearningStage.DIAGNOSTIC
     current_kp_index: int = 0
     mastery_levels: dict[str, float] = Field(default_factory=dict)
     knowledge_types: dict[str, KnowledgeType] = Field(default_factory=dict)
@@ -174,12 +176,10 @@ class LearningProgress(BaseModel):
     error_records: list[ErrorRecord] = Field(default_factory=list)
     repetition_states: dict[str, RepetitionState] = Field(default_factory=dict)
     review_queue: list[ReviewTask] = Field(default_factory=list)
-    module_stage: dict[str, LearningStage] = Field(default_factory=dict)
     feynman_retries: dict[str, int] = Field(default_factory=dict)
     feynman_explanations: dict[str, str] = Field(default_factory=dict)
     stage_failure_counts: dict[str, int] = Field(default_factory=dict)
     stage_failure_notes: dict[str, str] = Field(default_factory=dict)
-    learning_mode: Literal["mastery", "exam"] = "mastery"
     version: int = 0
     created_at: float = Field(default_factory=time.time)
     updated_at: float = Field(default_factory=time.time)
@@ -188,7 +188,6 @@ class LearningProgress(BaseModel):
 __all__ = [
     "KnowledgeType",
     "ErrorType",
-    "MasteryLevel",
     "LearningStage",
     "KnowledgePoint",
     "LearningModule",

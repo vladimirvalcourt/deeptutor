@@ -20,7 +20,10 @@ from deeptutor.services.path_service import get_path_service
 
 
 def _json_dumps(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    # default=str: a single non-serializable object inside an event payload
+    # (e.g. a dataclass smuggled into tool args) must degrade to its repr,
+    # never kill message/event persistence for the whole turn.
+    return json.dumps(value, ensure_ascii=False, default=str)
 
 
 # Sentinel so ``add_message`` can distinguish "caller wants the legacy

@@ -49,8 +49,13 @@ class StreamBus:
         """Yield events until the bus is closed."""
         q: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
         self._subscribers.append(q)
+        # Snapshot the replay range in the same synchronous step as the
+        # queue registration: events emitted while we replay are delivered
+        # via the queue only. Iterating the live list instead would yield
+        # those events twice (list-append during iteration + queue copy).
+        replay_count = len(self._history)
         try:
-            for event in self._history:
+            for event in self._history[:replay_count]:
                 yield event
             if self._closed and q.empty():
                 return

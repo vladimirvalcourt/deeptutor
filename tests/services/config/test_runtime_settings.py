@@ -185,7 +185,9 @@ def test_startup_ensure_creates_missing_runtime_jsons_with_defaults(
     assert (settings_dir / "system.json").exists()
     assert (settings_dir / "auth.json").exists()
     assert (settings_dir / "integrations.json").exists()
+    assert (settings_dir / "mineru.json").exists()
     assert (settings_dir / "model_catalog.json").exists()
+    assert _read_json(settings_dir / "mineru.json")["mode"] == "local"
     assert _read_json(settings_dir / "system.json")["backend_port"] == 8001
     assert _read_json(settings_dir / "auth.json")["enabled"] is False
     assert _read_json(settings_dir / "integrations.json")["pocketbase_url"] == ""
@@ -194,6 +196,78 @@ def test_startup_ensure_creates_missing_runtime_jsons_with_defaults(
         "embedding",
         "search",
     }
+
+
+def test_mineru_defaults_and_normalization(tmp_path: Path) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+
+    defaults = service.load_mineru(include_process_overrides=False)
+    assert defaults["mode"] == "local"
+    assert defaults["model_version"] == "pipeline"
+    assert defaults["api_token"] == ""
+
+    saved = service.save_mineru(
+        {
+            "mode": "CLOUD",  # case-insensitive
+            "api_base_url": "https://mineru.net/",  # trailing slash stripped
+            "api_token": "  tok-123  ",  # trimmed
+            "model_version": "bogus",  # invalid → pipeline
+            "language": "",  # empty → auto
+            "enable_formula": "no",  # coerced to bool
+            "is_ocr": 1,
+        }
+    )
+    assert saved["mode"] == "cloud"
+    assert saved["api_base_url"] == "https://mineru.net"
+    assert saved["api_token"] == "tok-123"
+    assert saved["model_version"] == "pipeline"
+    assert saved["language"] == "auto"
+    assert saved["enable_formula"] is False
+    assert saved["is_ocr"] is True
+    # Unknown mode falls back to local.
+    assert service.save_mineru({"mode": "weird"})["mode"] == "local"
+
+    # Model-download fields: source whitelisted, endpoint trimmed.
+    saved = service.save_mineru(
+        {
+            "model_download_source": "ModelScope",
+            "model_download_endpoint": " https://hf-mirror.com/ ",
+        }
+    )
+    assert saved["model_download_source"] == "modelscope"
+    assert saved["model_download_endpoint"] == "https://hf-mirror.com"
+    assert service.save_mineru({"model_download_source": "weird"})["model_download_source"] == (
+        "huggingface"
+    )
+
+
+def test_mineru_local_cli_path_roundtrip(tmp_path: Path) -> None:
+    service = RuntimeSettingsService(tmp_path / "settings", process_env={})
+    saved = service.save_mineru({"local_cli_path": "  /envs/mineru/bin/mineru  "})
+    assert saved["local_cli_path"] == "/envs/mineru/bin/mineru"
+    assert service.load_mineru()["local_cli_path"] == "/envs/mineru/bin/mineru"
+    # Default is empty (auto-detect from PATH).
+    assert service.save_mineru({})["local_cli_path"] == ""
+
+
+def test_mineru_process_env_override(tmp_path: Path) -> None:
+    service = RuntimeSettingsService(
+        tmp_path / "settings",
+        process_env={
+            "MINERU_MODE": "cloud",
+            "MINERU_API_TOKEN": "env-token",
+            "MINERU_LOCAL_CLI_PATH": "/env/bin/mineru",
+        },
+    )
+    service.save_mineru({"mode": "local", "api_token": "file-token"})
+
+    effective = service.load_mineru()
+    assert effective["mode"] == "cloud"
+    assert effective["api_token"] == "env-token"
+    assert effective["local_cli_path"] == "/env/bin/mineru"
+    # The persisted file keeps the on-disk values, not the env overrides.
+    assert _read_json(service.path_for("mineru"))["mode"] == "local"
+    assert _read_json(service.path_for("mineru"))["api_token"] == "file-token"
 
 
 def test_runtime_settings_can_ignore_process_overrides(tmp_path: Path) -> None:

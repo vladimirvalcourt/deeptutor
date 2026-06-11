@@ -257,7 +257,7 @@ which python
 
 ```bash
 # 通用
-pip install -e ".[tutorbot]"
+pip install -e ".[partners]"
 
 # 或者装某一个（很少需要）
 pip install python-telegram-bot   # Telegram

@@ -169,8 +169,21 @@ def _coerce_bool(raw: Any, default: bool) -> bool:
 
 
 # Only the chat sub-sections actually read by ``AgenticChatPipeline.__init__``.
-# Add a stage here once a real LLM call site starts consuming its max_tokens.
-_CHAT_STAGES_IN_USE: tuple[str, ...] = ("responding", "answer_now")
+_CHAT_STAGES_IN_USE: tuple[str, ...] = (
+    "exploring",
+    "responding",
+)
+
+# Targeting-era chat keys no longer read by the pipeline; dropped on write.
+_CHAT_LEGACY_KEYS: tuple[str, ...] = (
+    "max_iterations",
+    "max_explore_rounds",
+    "max_act_rounds",
+    "max_tool_steps",
+    "targeting",
+    "explore",
+    "act",
+)
 
 
 def _build_chat_block(agents_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -181,8 +194,8 @@ def _build_chat_block(agents_cfg: dict[str, Any]) -> dict[str, Any]:
     _deep_merge(merged, chat_cfg)
     return {
         "temperature": _coerce_float(merged.get("temperature"), DEFAULT_CHAT_PARAMS["temperature"]),
-        "max_iterations": _coerce_int(
-            merged.get("max_iterations"), DEFAULT_CHAT_PARAMS["max_iterations"], lo=1, hi=100
+        "max_rounds": _coerce_int(
+            merged.get("max_rounds"), DEFAULT_CHAT_PARAMS["max_rounds"], lo=1, hi=50
         ),
         "stage_budgets": {
             stage: _coerce_int(
@@ -292,13 +305,16 @@ def capabilities_settings_dict() -> dict[str, Any]:
 def _apply_chat_into_agents_yaml(agents_cfg: dict[str, Any], block: dict[str, Any]) -> None:
     current = _get_at(agents_cfg, ("capabilities", "chat"))
     new_chat: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+    new_chat.pop("answer_now", None)
+    for legacy_key in _CHAT_LEGACY_KEYS:
+        new_chat.pop(legacy_key, None)
     if "temperature" in block:
         new_chat["temperature"] = _coerce_float(
             block.get("temperature"), DEFAULT_CHAT_PARAMS["temperature"]
         )
-    if "max_iterations" in block:
-        new_chat["max_iterations"] = _coerce_int(
-            block.get("max_iterations"), DEFAULT_CHAT_PARAMS["max_iterations"], lo=1, hi=100
+    if "max_rounds" in block:
+        new_chat["max_rounds"] = _coerce_int(
+            block.get("max_rounds"), DEFAULT_CHAT_PARAMS["max_rounds"], lo=1, hi=50
         )
     stage_budgets = block.get("stage_budgets") or {}
     if isinstance(stage_budgets, dict):

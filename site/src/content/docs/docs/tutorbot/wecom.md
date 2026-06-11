@@ -19,7 +19,7 @@ WeCom support uses an optional Python package:
 pip install wecom-aibot-sdk
 ```
 
-If you started with `pip install -e ".[tutorbot]"`, this may already be in. Verify:
+If you started with `pip install -e ".[partners]"`, this may already be in. Verify:
 
 ```bash
 python -c "import wecom_aibot_sdk; print('ok')"

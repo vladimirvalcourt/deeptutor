@@ -16,7 +16,8 @@ from deeptutor.services.path_service import get_path_service
 _setup_logger = None
 
 DEFAULT_INTERFACE_SETTINGS = {
-    "theme": "light",
+    # "snow" is the pure-white neutral theme, shown as "Default" in the UI.
+    "theme": "snow",
     "language": "en",
     "sidebar_description": "✨ Data Intelligence Lab @ HKU",
     "sidebar_nav_order": {

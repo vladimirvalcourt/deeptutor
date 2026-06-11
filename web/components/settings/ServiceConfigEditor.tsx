@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import ProviderIcon from "@/components/common/ProviderIcon";
 import {
   type CatalogModel,
   type CatalogProfile,
@@ -254,12 +255,22 @@ export function ServiceConfigEditor({ service }: { service: ServiceName }) {
                         aria-label={t("Rename profile")}
                       />
                     ) : (
-                      <div
-                        className={`truncate text-[13px] leading-tight ${
-                          isActive ? "font-semibold" : "font-medium"
-                        }`}
-                      >
-                        {profile.name}
+                      <div className="flex items-center gap-1.5">
+                        <ProviderIcon
+                          provider={
+                            service === "search"
+                              ? profile.provider
+                              : profile.binding
+                          }
+                          size={13}
+                        />
+                        <div
+                          className={`min-w-0 truncate text-[13px] leading-tight ${
+                            isActive ? "font-semibold" : "font-medium"
+                          }`}
+                        >
+                          {profile.name}
+                        </div>
                       </div>
                     )}
                     <div className="mt-0.5 truncate text-[11px] leading-tight text-[var(--muted-foreground)]/70">
@@ -735,6 +746,9 @@ function ProfileFields({
   const { providers, updateProfileField, updateModelField } = useSettings();
   const [extraOpen, setExtraOpen] = useState(false);
 
+  const providerValue =
+    service === "search" ? profile.provider || "" : profile.binding || "";
+
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2">
@@ -742,13 +756,16 @@ function ProfileFields({
           {t("Provider")}
         </div>
         <div className="relative">
+          {providerValue && (
+            <ProviderIcon
+              provider={providerValue}
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2"
+            />
+          )}
           <select
-            className={selectClass}
-            value={
-              service === "search"
-                ? profile.provider || ""
-                : profile.binding || ""
-            }
+            className={`${selectClass} ${providerValue ? "pl-9" : ""}`}
+            value={providerValue}
             onChange={(e) => {
               const val = e.target.value;
               const field = service === "search" ? "provider" : "binding";

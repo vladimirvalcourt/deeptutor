@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
 import uuid
 
+from deeptutor.learning.grading import classify_error, grade_answer
+from deeptutor.learning.mastery import compute_mastery
 from deeptutor.learning.models import (
     ErrorRecord,
     LearningModule,
@@ -13,6 +16,9 @@ from deeptutor.learning.models import (
     RetryAttempt,
 )
 from deeptutor.learning.storage import LearningStore
+
+if TYPE_CHECKING:
+    from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 
 
 class LearningService:
@@ -27,30 +33,11 @@ class LearningService:
         self._store.save(progress)  # persist immediately to prevent race
         return progress
 
-    def merge_modules(
-        self, progress: LearningProgress, modules: list[LearningModule]
-    ) -> None:
-        """Incremental merge: keep existing modules, add/update by id."""
-        existing_by_id = {m.id: m for m in progress.modules}
-        for mod in modules:
-            existing_by_id[mod.id] = mod  # add new or replace with updated
-            for kp in mod.knowledge_points:
-                progress.knowledge_types[kp.id] = kp.type
-        progress.modules = list(existing_by_id.values())
-
-    def init_modules(
-        self, progress: LearningProgress, modules: list[LearningModule]
-    ) -> None:
-        """Initialize the runnable module set.
-
-        This is intentionally replace semantics.  Call merge_modules() for
-        incremental additions.
-        """
+    def init_modules(self, progress: LearningProgress, modules: list[LearningModule]) -> None:
+        """Initialize the runnable module set (replace semantics)."""
         self.replace_modules(progress, modules)
 
-    def replace_modules(
-        self, progress: LearningProgress, modules: list[LearningModule]
-    ) -> None:
+    def replace_modules(self, progress: LearningProgress, modules: list[LearningModule]) -> None:
         """Replace all modules and clean stale KP state."""
         new_kp_ids = {kp.id for m in modules for kp in m.knowledge_points}
 
@@ -65,20 +52,16 @@ class LearningService:
             if key not in new_kp_ids:
                 del progress.repetition_states[key]
         progress.error_records = [
-            r for r in progress.error_records
-            if r.knowledge_point_id in new_kp_ids
+            r for r in progress.error_records if r.knowledge_point_id in new_kp_ids
         ]
         progress.feynman_retries = {
-            k: v for k, v in progress.feynman_retries.items()
-            if k in new_kp_ids
+            k: v for k, v in progress.feynman_retries.items() if k in new_kp_ids
         }
         progress.feynman_explanations = {
-            k: v for k, v in progress.feynman_explanations.items()
-            if k in new_kp_ids
+            k: v for k, v in progress.feynman_explanations.items() if k in new_kp_ids
         }
         progress.review_queue = [
-            t for t in progress.review_queue
-            if t.knowledge_point_id in new_kp_ids
+            t for t in progress.review_queue if t.knowledge_point_id in new_kp_ids
         ]
         # Clear global stage failure records — different modules should not share failure counts
         progress.stage_failure_counts = {}
@@ -90,35 +73,34 @@ class LearningService:
             for kp in mod.knowledge_points:
                 progress.knowledge_types[kp.id] = kp.type
 
-    def advance_stage(
-        self, progress: LearningProgress, next_stage: LearningStage
-    ) -> None:
+    def advance_stage(self, progress: LearningProgress, next_stage: LearningStage) -> None:
         progress.current_stage = next_stage
         progress.updated_at = time.time()
 
     def switch_module(self, progress: LearningProgress, module_id: str) -> bool:
         """Point the session at ``module_id`` and reset it to that module's
-        PRETEST stage. Mutates ``progress`` in place and returns whether the
-        module exists. The caller is responsible for persisting (``save``) —
-        typically *after* cancelling any in-flight turn so the turn's teardown
-        cannot overwrite the switch with stale progress.
+        first teaching stage (EXPLAIN). Mutates ``progress`` in place and returns
+        whether the module exists. The caller is responsible for persisting
+        (``save``) — typically *after* cancelling any in-flight turn so the
+        turn's teardown cannot overwrite the switch with stale progress.
         """
         found = any(m.id == module_id for m in progress.modules)
         if found:
             progress.current_module_id = module_id
             progress.current_kp_index = 0
-            progress.current_stage = LearningStage.PRETEST
+            progress.current_stage = LearningStage.EXPLAIN
             progress.updated_at = time.time()
         return found
 
-    def record_quiz_attempt(
-        self, progress: LearningProgress, attempt: QuizAttempt
-    ) -> None:
+    def record_quiz_attempt(self, progress: LearningProgress, attempt: QuizAttempt) -> None:
         if not attempt.is_correct and attempt.error_type is not None:
             # Find existing error record for this question + knowledge point.
             existing = None
             for rec in progress.error_records:
-                if rec.question_id == attempt.question_id and rec.knowledge_point_id == attempt.knowledge_point_id:
+                if (
+                    rec.question_id == attempt.question_id
+                    and rec.knowledge_point_id == attempt.knowledge_point_id
+                ):
                     existing = rec
                     break
 
@@ -165,21 +147,66 @@ class LearningService:
         progress.updated_at = time.time()
 
     def calculate_mastery(self, progress: LearningProgress, kp_id: str) -> float:
-        """Weighted recent accuracy for *kp_id* (last 5 attempts)."""
-        attempts = [a for a in progress.quiz_attempts if a.knowledge_point_id == kp_id]
-        if not attempts:
-            return 0.0
-        recent = attempts[-5:]
-        weights = [0.5, 0.7, 0.85, 0.95, 1.0]
-        w = weights[-len(recent):]
-        score = sum((1.0 if a.is_correct else 0.0) * weight for a, weight in zip(recent, w))
-        return score / sum(w)
+        """Mastery 0..1 for *kp_id* from its attempt history (policy in mastery.py)."""
+        correctness = [
+            a.is_correct for a in progress.quiz_attempts if a.knowledge_point_id == kp_id
+        ]
+        return compute_mastery(correctness)
 
-    def update_mastery(
-        self, progress: LearningProgress, kp_id: str, level: float
-    ) -> None:
+    def update_mastery(self, progress: LearningProgress, kp_id: str, level: float) -> None:
         progress.mastery_levels[kp_id] = level
         progress.updated_at = time.time()
+
+    def grade_and_record(
+        self,
+        progress: LearningProgress,
+        *,
+        question_id: str,
+        knowledge_point_id: str,
+        module_id: str,
+        user_answer: str,
+        expected_answer: str,
+        question_type: str = "short",
+        self_attribution: str = "",
+        scheduler: SpacedRepetitionScheduler | None = None,
+    ) -> bool:
+        """Grade one answer and fold it through the full post-answer pipeline.
+
+        record attempt -> recompute mastery -> advance the spaced-repetition
+        state -> rebuild the review queue -> persist. This is the single source
+        of truth for what happens when a student answers, shared by every
+        interactive stage. Grading is fail-closed: with no stored expected
+        answer the attempt is recorded wrong, never right.
+        """
+        is_correct = bool(expected_answer) and grade_answer(
+            user_answer, expected_answer, question_type
+        )
+        self.record_quiz_attempt(
+            progress,
+            QuizAttempt(
+                question_id=question_id,
+                knowledge_point_id=knowledge_point_id,
+                module_id=module_id,
+                is_correct=is_correct,
+                user_answer=user_answer,
+                self_attribution=self_attribution,
+                error_type=None if is_correct else classify_error(user_answer),
+            ),
+        )
+        if knowledge_point_id:
+            self.update_mastery(
+                progress, knowledge_point_id, self.calculate_mastery(progress, knowledge_point_id)
+            )
+            kp_type = progress.knowledge_types.get(knowledge_point_id)
+            if kp_type is not None and scheduler is not None:
+                state = progress.repetition_states.get(
+                    knowledge_point_id
+                ) or scheduler.get_initial_state(kp_type)
+                progress.repetition_states[knowledge_point_id] = state
+                scheduler.schedule_next(state, kp_type, is_correct)
+                progress.review_queue = scheduler.build_review_queue(progress)
+        self.save(progress)
+        return is_correct
 
     def list_progress(self) -> dict:
         """Return summary of all book progress with per-book error info."""
@@ -194,11 +221,7 @@ class LearningService:
                 if progress is None:
                     continue
                 # Only count KPs from current modules (exclude stale IDs)
-                current_kp_ids = {
-                    kp.id
-                    for m in progress.modules
-                    for kp in m.knowledge_points
-                }
+                current_kp_ids = {kp.id for m in progress.modules for kp in m.knowledge_points}
                 total_kps = len(current_kp_ids)
                 total_mastery = sum(
                     progress.mastery_levels.get(kp_id, 0) for kp_id in current_kp_ids
@@ -207,16 +230,22 @@ class LearningService:
                 display_name = ""
                 if progress.modules:
                     display_name = progress.modules[0].name or ""
-                summaries.append({
-                    "book_id": progress.book_id,
-                    "name": display_name or progress.book_id,
-                    "modules_count": len(progress.modules),
-                    "kp_count": total_kps,
-                    "current_stage": progress.current_stage.value if progress.current_stage else "",
-                    # Average mastery across current KPs (not the % of KPs mastered).
-                    "avg_mastery_pct": round(total_mastery / total_kps * 100) if total_kps else 0,
-                    "updated_at": progress.updated_at,
-                })
+                summaries.append(
+                    {
+                        "book_id": progress.book_id,
+                        "name": display_name or progress.book_id,
+                        "modules_count": len(progress.modules),
+                        "kp_count": total_kps,
+                        "current_stage": progress.current_stage.value
+                        if progress.current_stage
+                        else "",
+                        # Average mastery across current KPs (not the % of KPs mastered).
+                        "avg_mastery_pct": round(total_mastery / total_kps * 100)
+                        if total_kps
+                        else 0,
+                        "updated_at": progress.updated_at,
+                    }
+                )
             except Exception:
                 logger.warning("Failed to load progress for book %s, skipping", bid, exc_info=True)
                 errors.append({"book_id": bid, "error": "Failed to load"})

@@ -31,7 +31,7 @@ from deeptutor.services.path_service import get_path_service
 
 logger = logging.getLogger(__name__)
 
-_VALID_ID = re.compile(r'^[a-zA-Z0-9_-]+$')
+_VALID_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _validate_id(value: str, name: str = "id") -> str:
@@ -103,6 +103,7 @@ class PocketBaseSessionStore:
 
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         sid = _validate_id(session_id, "session_id")
+
         def _get():
             try:
                 records = (
@@ -157,6 +158,7 @@ class PocketBaseSessionStore:
 
     async def update_session_title(self, session_id: str, title: str) -> bool:
         sid = _validate_id(session_id, "session_id")
+
         def _update():
             records = (
                 _pb()
@@ -178,6 +180,7 @@ class PocketBaseSessionStore:
 
     async def delete_session(self, session_id: str) -> bool:
         sid = _validate_id(session_id, "session_id")
+
         def _delete():
             records = (
                 _pb()
@@ -215,6 +218,7 @@ class PocketBaseSessionStore:
 
     async def update_summary(self, session_id: str, summary: str, up_to_msg_id: int) -> bool:
         sid = _validate_id(session_id, "session_id")
+
         def _update():
             records = (
                 _pb()
@@ -242,6 +246,7 @@ class PocketBaseSessionStore:
         self, session_id: str, preferences: dict[str, Any]
     ) -> bool:
         sid = _validate_id(session_id, "session_id")
+
         async def _merge():
             session = await self.get_session(sid)
             if session is None:
@@ -364,6 +369,7 @@ class PocketBaseSessionStore:
 
     async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
         sid = _validate_id(session_id, "session_id")
+
         def _get():
             return (
                 _pb()
@@ -431,9 +437,7 @@ class PocketBaseSessionStore:
             active = (
                 _pb()
                 .collection("turns")
-                .get_full_list(
-                    query_params={"filter": f'session_id="{sid}" && status="running"'}
-                )
+                .get_full_list(query_params={"filter": f'session_id="{sid}" && status="running"'})
             )
             if active:
                 raise RuntimeError(f"Session already has an active turn: {active[0].turn_id}")
@@ -470,11 +474,10 @@ class PocketBaseSessionStore:
 
     async def get_turn(self, turn_id: str) -> dict[str, Any] | None:
         tid = _validate_id(turn_id, "turn_id")
+
         def _get():
             records = (
-                _pb()
-                .collection("turns")
-                .get_full_list(query_params={"filter": f'turn_id="{tid}"'})
+                _pb().collection("turns").get_full_list(query_params={"filter": f'turn_id="{tid}"'})
             )
             return records[0] if records else None
 
@@ -483,6 +486,7 @@ class PocketBaseSessionStore:
 
     async def get_active_turn(self, session_id: str) -> dict[str, Any] | None:
         sid = _validate_id(session_id, "session_id")
+
         def _get():
             records = (
                 _pb()
@@ -501,6 +505,7 @@ class PocketBaseSessionStore:
 
     async def list_active_turns(self, session_id: str) -> list[dict[str, Any]]:
         sid = _validate_id(session_id, "session_id")
+
         def _list():
             return (
                 _pb()
@@ -526,9 +531,7 @@ class PocketBaseSessionStore:
 
         def _update():
             records = (
-                _pb()
-                .collection("turns")
-                .get_full_list(query_params={"filter": f'turn_id="{tid}"'})
+                _pb().collection("turns").get_full_list(query_params={"filter": f'turn_id="{tid}"'})
             )
             if not records:
                 return False

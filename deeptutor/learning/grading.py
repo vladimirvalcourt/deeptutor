@@ -1,8 +1,13 @@
-"""Unified grading function for guided learning."""
+"""Deterministic answer grading + coarse error classification for Mastery Path."""
+
 from __future__ import annotations
 
 from difflib import SequenceMatcher
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from deeptutor.learning.models import ErrorType
 
 
 def grade_answer(user_answer: str, expected_answer: str, question_type: str = "short") -> bool:
@@ -44,4 +49,16 @@ def grade_answer(user_answer: str, expected_answer: str, question_type: str = "s
     return False
 
 
-__all__ = ["grade_answer"]
+def classify_error(user_answer: str) -> ErrorType:
+    """Coarse error classification for a wrong answer.
+
+    A blank answer signals the student did not know (metacognitive); anything
+    else is treated as a wrong application. The richer four-type taxonomy is
+    assigned later by the LLM in the error-diagnosis stage.
+    """
+    from deeptutor.learning.models import ErrorType
+
+    return ErrorType.METACOGNITIVE if not user_answer.strip() else ErrorType.APPLICATION_ERROR
+
+
+__all__ = ["grade_answer", "classify_error"]

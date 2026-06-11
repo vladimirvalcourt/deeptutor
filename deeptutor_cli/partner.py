@@ -1,5 +1,5 @@
 """
-CLI commands for managing TutorBot instances.
+CLI commands for managing partner instances.
 """
 
 from __future__ import annotations
@@ -15,83 +15,88 @@ console = Console()
 
 def register(app: typer.Typer) -> None:
     @app.command("list")
-    def bot_list() -> None:
-        """List all TutorBot instances."""
-        from deeptutor.services.tutorbot import get_tutorbot_manager
+    def partner_list() -> None:
+        """List all partners."""
+        from deeptutor.services.partners import get_partner_manager
 
-        bots = get_tutorbot_manager().list_bots()
-        if not bots:
-            console.print("[dim]No TutorBots configured.[/]")
+        partners = get_partner_manager().list_partners()
+        if not partners:
+            console.print("[dim]No partners configured.[/]")
             return
 
-        table = Table(title="TutorBots")
+        table = Table(title="Partners")
         table.add_column("ID", style="cyan")
         table.add_column("Name")
         table.add_column("Status")
         table.add_column("Model", style="dim")
         table.add_column("Channels", style="dim")
 
-        for b in bots:
-            status = "[green]running[/]" if b.get("running") else "[dim]stopped[/]"
+        for p in partners:
+            status = "[green]running[/]" if p.get("running") else "[dim]stopped[/]"
+            selection = p.get("llm_selection") or {}
+            model = selection.get("model_id") or p.get("model") or "(default)"
             table.add_row(
-                b["bot_id"],
-                b.get("name", ""),
+                p["partner_id"],
+                p.get("name", ""),
                 status,
-                b.get("model") or "(default)",
-                ", ".join(b.get("channels", [])) or "-",
+                model,
+                ", ".join(p.get("channels", [])) or "-",
             )
         console.print(table)
 
     @app.command("start")
-    def bot_start(
-        name: str = typer.Argument(..., help="Bot ID to start."),
+    def partner_start(
+        name: str = typer.Argument(..., help="Partner ID to start."),
     ) -> None:
-        """Start a TutorBot instance."""
-        from deeptutor.services.tutorbot import get_tutorbot_manager
+        """Start a partner."""
+        from deeptutor.services.partners import get_partner_manager
 
-        mgr = get_tutorbot_manager()
+        mgr = get_partner_manager()
         try:
-            instance = asyncio.run(mgr.start_bot(name))
-            console.print(f"[green]Started TutorBot '{instance.config.name}' ({name})[/]")
+            instance = asyncio.run(mgr.start_partner(name))
+            console.print(f"[green]Started partner '{instance.config.name}' ({name})[/]")
         except RuntimeError as e:
             console.print(f"[red]Failed to start: {e}[/]")
             raise typer.Exit(1)
 
     @app.command("stop")
-    def bot_stop(
-        name: str = typer.Argument(..., help="Bot ID to stop."),
+    def partner_stop(
+        name: str = typer.Argument(..., help="Partner ID to stop."),
     ) -> None:
-        """Stop a running TutorBot instance."""
-        from deeptutor.services.tutorbot import get_tutorbot_manager
+        """Stop a running partner."""
+        from deeptutor.services.partners import get_partner_manager
 
-        mgr = get_tutorbot_manager()
-        stopped = asyncio.run(mgr.stop_bot(name))
+        mgr = get_partner_manager()
+        stopped = asyncio.run(mgr.stop_partner(name))
         if stopped:
-            console.print(f"[green]Stopped TutorBot '{name}'[/]")
+            console.print(f"[green]Stopped partner '{name}'[/]")
         else:
-            console.print(f"[yellow]Bot '{name}' not found or not running.[/]")
+            console.print(f"[yellow]Partner '{name}' not found or not running.[/]")
 
     @app.command("create")
-    def bot_create(
-        name: str = typer.Argument(..., help="Bot ID."),
+    def partner_create(
+        name: str = typer.Argument(..., help="Partner ID."),
         display_name: str = typer.Option("", "--name", "-n", help="Display name."),
-        persona: str = typer.Option("", "--persona", "-p", help="Persona description."),
+        soul: str = typer.Option("", "--soul", "-s", help="Soul markdown (the persona)."),
         model: str = typer.Option("", "--model", "-m", help="Model override."),
     ) -> None:
-        """Create a new TutorBot configuration and start it."""
-        from deeptutor.services.tutorbot import get_tutorbot_manager
-        from deeptutor.services.tutorbot.manager import BotConfig
+        """Create a new partner configuration and start it."""
+        from deeptutor.services.partners import get_partner_manager
+        from deeptutor.services.partners.manager import PartnerConfig
+        from deeptutor.services.partners.workspace import write_soul
 
-        config = BotConfig(
+        config = PartnerConfig(
             name=display_name or name,
-            persona=persona,
             model=model or None,
         )
-        mgr = get_tutorbot_manager()
+        mgr = get_partner_manager()
         try:
-            instance = asyncio.run(mgr.start_bot(name, config))
+            mgr.save_config(name, config, auto_start=True)
+            if soul:
+                write_soul(name, soul)
+            instance = asyncio.run(mgr.start_partner(name, config))
             console.print(
-                f"[green]Created and started TutorBot '{instance.config.name}' ({name})[/]"
+                f"[green]Created and started partner '{instance.config.name}' ({name})[/]"
             )
         except RuntimeError as e:
             console.print(f"[red]Failed: {e}[/]")

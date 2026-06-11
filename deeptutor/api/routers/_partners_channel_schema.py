@@ -156,15 +156,3 @@ def all_channel_schemas() -> dict[str, dict[str, Any]]:
         if payload is not None:
             out[name] = payload
     return out
-
-
-def global_channels_schema() -> dict[str, Any]:
-    """Schema for the top-level ``ChannelsConfig`` flags (send_progress / send_tool_hints)."""
-    from deeptutor.partners.config.schema import ChannelsConfig
-
-    raw = ChannelsConfig.model_json_schema(by_alias=False)
-    flat = inline_refs(raw)
-    return {
-        "json_schema": flat,
-        "secret_fields": collect_secret_fields(flat),
-    }

@@ -1284,13 +1284,15 @@ class SolvePipeline:
             if self.kb_name:
                 kwargs.setdefault("kb_name", self.kb_name)
         elif tool_name == "code_execution":
-            kwargs.setdefault("intent", context.user_message)
-            kwargs.setdefault("timeout", 30)
-            kwargs.setdefault("feature", "deep_solve")
-            kwargs.setdefault("session_id", context.session_id)
-            kwargs.setdefault("turn_id", turn_id)
+            from deeptutor.services.sandbox import Mount
+
             if task_dir is not None:
-                kwargs.setdefault("workspace_dir", str(task_dir / "code_runs"))
+                code_dir = task_dir / "code_runs"
+                code_dir.mkdir(parents=True, exist_ok=True)
+                kwargs["_sandbox_workdir"] = str(code_dir)
+                kwargs["_sandbox_mounts"] = (
+                    Mount(host_path=str(code_dir), sandbox_path=str(code_dir), read_only=False),
+                )
         elif tool_name in {"reason", "brainstorm"}:
             kwargs.setdefault("context", context.user_message)
         elif tool_name == "web_search":

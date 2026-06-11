@@ -66,7 +66,7 @@ Matrix 支持放在一个可选 install extra 里。三档：
 |------|----------|
 | 基础 Matrix（无 E2EE） | `pip install -e ".[matrix]"` |
 | Matrix + E2EE | `pip install -e ".[matrix-e2e]"` *（还得装 libolm）* |
-| 所有 TutorBot 渠道（含 Matrix） | `pip install -e ".[tutorbot]"` |
+| 所有 Partners 渠道（含 Matrix） | `pip install -e ".[partners]"` |
 
 要 E2EE 的话先装 **libolm**：
 

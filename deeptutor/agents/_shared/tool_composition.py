@@ -36,11 +36,16 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
         "read_source",
         "read_memory",
         "write_memory",
+        "read_skill",
+        "load_tools",
+        "exec",
+        "code_execution",
         "list_notebook",
         "write_note",
         "ask_user",
         "web_fetch",
         "github",
+        "cron",
     }
 )
 
@@ -75,6 +80,10 @@ class ToolMountFlags:
     has_sources: bool = False
     has_memory: bool = False
     has_notebooks: bool = False
+    has_skills: bool = False
+    has_deferred_tools: bool = False
+    has_exec: bool = False
+    has_code: bool = False
 
 
 def compose_enabled_tools(
@@ -94,7 +103,8 @@ def compose_enabled_tools(
        respected).
     2. Conditional auto-mounts (``rag`` if a KB is attached, ``read_source``
        if a source index exists, ``read_memory`` if memory has content,
-       ``list_notebook`` + ``write_note`` if notebooks exist).
+       ``list_notebook`` + ``write_note`` if notebooks exist,
+       ``read_skill`` if the turn carries a skills manifest).
     3. Always-on auto-mounts (``web_fetch``, ``github``, ``ask_user``).
 
     The result is ordered (no dedup is applied — caller's prerequisite is
@@ -115,10 +125,19 @@ def compose_enabled_tools(
     if mount_flags.has_notebooks:
         composed.append("list_notebook")
         composed.append("write_note")
+    if mount_flags.has_skills:
+        composed.append("read_skill")
+    if mount_flags.has_deferred_tools:
+        composed.append("load_tools")
+    if mount_flags.has_exec:
+        composed.append("exec")
+    if mount_flags.has_code:
+        composed.append("code_execution")
     composed.append("write_memory")
     composed.append("web_fetch")
     composed.append("github")
     composed.append("ask_user")
+    composed.append("cron")
     return composed
 
 

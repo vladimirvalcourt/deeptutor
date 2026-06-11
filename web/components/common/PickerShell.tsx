@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 /**
  * Behavioral wrapper for fullscreen pickers (NotebookRecordPicker,
- * HistorySessionPicker, MemoryPicker, QuestionBankPicker, SkillsPicker,
+ * HistorySessionPicker, MemoryPicker, QuestionBankPicker, PersonaPicker,
  * BookReferencePicker, SaveToNotebookModal, …). Each of those was rolled
  * by hand and skipped the basic dialog-behavior contract — Escape, backdrop
  * click, body scroll lock, focus trap, ARIA roles. This component lifts

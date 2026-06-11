@@ -61,7 +61,7 @@ def test_install_current_user_maps_none_to_local_admin() -> None:
 
 def test_install_current_user_maps_payload_to_scoped_user() -> None:
     """``_install_current_user(payload)`` must produce a user-scoped
-    CurrentUser whose workspace root lives under MULTI_USER_ROOT — the
+    CurrentUser whose workspace root lives under USERS_ROOT — the
     same shape that ``ws_require_auth`` and HTTP deps need to install."""
     from deeptutor.api.routers.auth import _install_current_user
     from deeptutor.multi_user.context import get_current_user_or_none, reset_current_user
@@ -161,7 +161,7 @@ def test_require_auth_propagates_admin_contextvar_to_endpoint(monkeypatch) -> No
 def test_path_service_resolves_per_user_workspace_through_dependency(monkeypatch, tmp_path) -> None:
     """The full chain that the reporter exercised in #481: a non-admin
     request lands on an endpoint that calls ``get_path_service()`` and
-    that path service must point at ``multi-user/<uid>/``, not the
+    that path service must point at ``data/users/<uid>/``, not the
     admin fallback."""
     from deeptutor.api.routers import auth as auth_router
     from deeptutor.multi_user import paths as mu_paths
@@ -169,7 +169,7 @@ def test_path_service_resolves_per_user_workspace_through_dependency(monkeypatch
     from deeptutor.services.path_service import get_path_service
 
     monkeypatch.setattr(auth_router, "AUTH_ENABLED", True)
-    monkeypatch.setattr(mu_paths, "MULTI_USER_ROOT", tmp_path / "multi-user")
+    monkeypatch.setattr(mu_paths, "USERS_ROOT", tmp_path / "data" / "users")
     monkeypatch.setattr(mu_paths, "_path_services", {})
     monkeypatch.setattr(
         auth_router,
@@ -189,9 +189,9 @@ def test_path_service_resolves_per_user_workspace_through_dependency(monkeypatch
 
     assert resp.status_code == 200
     chat_db = resp.json()["chat_db"]
-    expected_root = str((tmp_path / "multi-user" / "u_alice").resolve())
+    expected_root = str((tmp_path / "data" / "users" / "u_alice").resolve())
     assert chat_db.startswith(expected_root), (
-        "Per-user request should resolve under the user's MULTI_USER_ROOT scope. "
+        "Per-user request should resolve under the user's USERS_ROOT scope. "
         f"Expected prefix {expected_root!r}, got: {chat_db!r}. If this fails, the "
         "ContextVar mutation in require_auth is not reaching the endpoint — "
         "see #481."

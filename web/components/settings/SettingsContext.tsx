@@ -14,7 +14,6 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { writeStoredLanguage } from "@/context/app-shell-storage";
-import type { ModelAccess } from "@/features/multi-user/types";
 import { apiFetch, apiUrl } from "@/lib/api";
 import { setTheme as applyThemePreference } from "@/lib/theme";
 
@@ -104,7 +103,6 @@ export type EmbeddingCapabilities = {
 type SettingsPayload = {
   ui: UiSettings;
   catalog?: Catalog;
-  model_access?: ModelAccess;
   providers?: Record<ServiceName, ProviderOption[]>;
 };
 
@@ -281,7 +279,6 @@ type SettingsContextValue = {
   draft: Catalog;
   status: SystemStatus | null;
   providers: Record<ServiceName, ProviderOption[]>;
-  modelAccess: ModelAccess | null;
   catalogEditable: boolean | null;
   settingsLoading: boolean;
   settingsError: string | null;
@@ -367,11 +364,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   const [status, setStatus] = useState<SystemStatus | null>(null);
-  const [theme, setTheme] = useState<UiSettings["theme"]>("light");
+  const [theme, setTheme] = useState<UiSettings["theme"]>("snow");
   const [language, setLanguage] = useState<UiSettings["language"]>("en");
   const [catalog, setCatalog] = useState<Catalog>(defaultCatalog());
   const [draft, setDraft] = useState<Catalog>(defaultCatalog());
-  const [modelAccess, setModelAccess] = useState<ModelAccess | null>(null);
   const [catalogEditable, setCatalogEditable] = useState<boolean | null>(null);
   const [providers, setProviders] = useState<
     Record<ServiceName, ProviderOption[]>
@@ -437,10 +433,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         setCatalog(payload.catalog);
         setDraft(cloneCatalog(payload.catalog));
         setCatalogEditable(true);
-        setModelAccess(null);
       } else {
         setCatalogEditable(false);
-        setModelAccess(payload.model_access ?? null);
       }
       setTheme(payload.ui.theme);
       setLanguage(payload.ui.language);
@@ -987,7 +981,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       draft,
       status,
       providers,
-      modelAccess,
       catalogEditable,
       settingsLoading,
       settingsError,
@@ -1041,7 +1034,6 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       language,
       llmContextDetection,
       logs,
-      modelAccess,
       mutateCatalog,
       providers,
       registerExtension,

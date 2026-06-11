@@ -168,7 +168,7 @@ export default function AdminUsersPage() {
             Back
           </Link>
           <div className="flex-1">
-            <h1 className="text-xl font-semibold text-[var(--foreground)]">
+            <h1 className="font-serif text-xl font-semibold text-[var(--foreground)]">
               User Management
             </h1>
             <p className="mt-0.5 text-sm text-[var(--muted-foreground)]">

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 from typing import Any, Awaitable, Callable
 import uuid
@@ -32,6 +33,7 @@ from deeptutor.multi_user.paths import user_context
 from deeptutor.partners.bus.events import InboundMessage, OutboundMessage
 from deeptutor.partners.bus.queue import MessageBus
 from deeptutor.partners.helpers import detect_image_mime
+from deeptutor.services.partners.commands import PartnerCommandHandler
 from deeptutor.services.partners.scope import partner_user
 from deeptutor.services.partners.sessions import PartnerSessionStore
 from deeptutor.services.partners.workspace import ensure_partner_workspace, read_soul
@@ -72,11 +74,13 @@ class PartnerRunner:
         config: Any,
         bus: MessageBus,
         store: PartnerSessionStore,
+        save_config: Callable[[str, Any], None] | None = None,
     ) -> None:
         self.partner_id = partner_id
         self.config = config
         self.bus = bus
         self.store = store
+        self.save_config = save_config
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._tasks: set[asyncio.Task] = set()
 
@@ -141,6 +145,15 @@ class PartnerRunner:
         """
         session_key = msg.session_key
         async with self._lock_for(session_key):
+            command = PartnerCommandHandler(
+                partner_id=self.partner_id,
+                config=self.config,
+                store=self.store,
+                save_config=self.save_config,
+            ).dispatch(msg)
+            if command is not None:
+                return command.content
+
             final = await self._run_turn(msg, on_event=on_event, delivery_meta=delivery_meta)
             self.store.append(
                 session_key,
@@ -213,8 +226,12 @@ class PartnerRunner:
 
         context = self._build_context(msg)
         turn_id = str(context.metadata.get("turn_id") or "")
-        send_progress = self._channels_flag("send_progress", default=True)
-        send_tool_hints = self._channels_flag("send_tool_hints", default=True)
+        send_progress = self._channel_delivery_flag(
+            msg.channel, "send_progress", default=True
+        )
+        send_tool_hints = self._channel_delivery_flag(
+            msg.channel, "send_tool_hints", default=True
+        )
         is_im = msg.channel != "web"
         # Streaming requires send_progress: narration rounds stream live as
         # they happen, so with progress muted we keep buffered delivery.
@@ -333,6 +350,21 @@ class PartnerRunner:
             # NOTE: no ``wait_for_user_reply`` — an ask_user pause makes
             # the pending question the turn's reply (IM semantics).
         }
+        channel_meta: dict[str, Any] = {}
+        for key, value in (msg.metadata or {}).items():
+            key_text = str(key)
+            if key_text.startswith("_"):
+                continue
+            try:
+                json.dumps(value)
+                channel_meta[key_text] = value
+            except TypeError:
+                channel_meta[key_text] = str(value)
+        if channel_meta:
+            metadata["channel_metadata"] = channel_meta
+        cron_job_id = str((msg.metadata or {}).get("_cron_job_id") or "").strip()
+        if cron_job_id:
+            metadata["cron_job_id"] = cron_job_id
         mcp_tools = getattr(self.config, "mcp_tools", None)
         if isinstance(mcp_tools, list):
             metadata["mcp_tools_filter"] = [str(name) for name in mcp_tools]
@@ -401,10 +433,20 @@ class PartnerRunner:
         lang = str(getattr(self.config, "language", "") or "").strip().lower()
         return "zh" if lang.startswith("zh") else "en"
 
-    def _channels_flag(self, name: str, *, default: bool) -> bool:
+    def _channel_delivery_flag(
+        self, channel_name: str, name: str, *, default: bool
+    ) -> bool:
         channels = getattr(self.config, "channels", None) or {}
-        value = channels.get(name, default) if isinstance(channels, dict) else default
-        return bool(value)
+        if not isinstance(channels, dict):
+            return default
+        section = channels.get(channel_name)
+        if not isinstance(section, dict):
+            return default
+        value = section.get(name)
+        if value is None:
+            camel = "sendProgress" if name == "send_progress" else "sendToolHints"
+            value = section.get(camel)
+        return value if isinstance(value, bool) else default
 
     def _attachments_from_media(self, media: list[str]) -> list[Attachment]:
         attachments: list[Attachment] = []

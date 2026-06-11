@@ -7,11 +7,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useAppShell } from "@/context/AppShellContext";
 import {
   BookOpen,
-  Bot,
   BookText,
   Brain,
   ChevronDown,
   Github,
+  HeartHandshake,
   LayoutGrid,
   Library,
   MessageSquare,
@@ -42,10 +42,10 @@ const PRIMARY_NAV: NavEntry[] = [
     tooltipKey: "Chat tooltip",
   },
   {
-    href: "/agents",
-    label: "TutorBot",
-    icon: Bot,
-    tooltipKey: "TutorBot tooltip",
+    href: "/partners",
+    label: "Partners",
+    icon: HeartHandshake,
+    tooltipKey: "Partners tooltip",
   },
   {
     href: "/co-writer",
@@ -60,8 +60,9 @@ const PRIMARY_NAV: NavEntry[] = [
     icon: BookOpen,
     tooltipKey: "Knowledge tooltip",
   },
-  // Guided Learning is hidden from the product nav (backend kept for further
-  // development). Re-add this entry to expose the /learning workspace.
+  // Mastery Path (/learning) is hidden from the product nav for now — the
+  // route, its components and the backend stay in place so the feature can
+  // be reworked and re-surfaced later. Re-add this entry to bring it back.
   {
     href: "/space",
     label: "Space",

@@ -498,6 +498,17 @@ export function normalizeMarkdownForDisplay(content: string): string {
   return linkifyCitationsOutsideCode(safe);
 }
 
+/**
+ * Strip machine annotations the model occasionally echoes from tool results
+ * into its answer — e.g. a standalone "[Generated artifacts: foo.pdf]" line.
+ * The files themselves render as dedicated cards under the message, so the
+ * annotation is pure noise in the prose.
+ */
+export function stripArtifactAnnotations(content: string): string {
+  if (!content.includes("Generated artifacts")) return content;
+  return content.replace(/^\s*\[Generated artifacts?:[^\]]*\]\s*$/gim, "").trim();
+}
+
 export function hasVisibleMarkdownContent(content: string): boolean {
   const normalized = normalizeMarkdownForDisplay(content);
   if (!normalized.trim()) return false;

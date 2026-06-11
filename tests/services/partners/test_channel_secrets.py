@@ -91,7 +91,12 @@ def _make_instance() -> PartnerInstance:
         config=PartnerConfig(
             name="partner",
             channels={
-                "telegram": {"enabled": True, "token": "123:ABC"},
+                "telegram": {
+                    "enabled": True,
+                    "token": "123:ABC",
+                    "send_progress": False,
+                },
+                # Legacy top-level delivery flags should not be exposed.
                 "send_progress": True,
             },
         ),
@@ -102,7 +107,7 @@ class TestToDictDefaultsAreSafe:
     def test_default_returns_keys_only(self):
         inst = _make_instance()
         d = inst.to_dict()
-        assert set(d["channels"]) == {"telegram", "send_progress"}
+        assert set(d["channels"]) == {"telegram"}
         # last_reload_error is always present for the UI to consume
         assert "last_reload_error" in d
         assert d["last_reload_error"] is None
@@ -112,12 +117,14 @@ class TestToDictDefaultsAreSafe:
         d = inst.to_dict(mask_secrets=True)
         assert d["channels"]["telegram"]["enabled"] is True
         assert d["channels"]["telegram"]["token"] == "***"
-        assert d["channels"]["send_progress"] is True
+        assert d["channels"]["telegram"]["send_progress"] is False
+        assert "send_progress" not in d["channels"]
 
     def test_include_secrets_returns_raw_token(self):
         inst = _make_instance()
         d = inst.to_dict(include_secrets=True)
         assert d["channels"]["telegram"]["token"] == "123:ABC"
+        assert "send_progress" not in d["channels"]
 
     def test_include_secrets_takes_precedence_over_mask(self):
         inst = _make_instance()

@@ -119,38 +119,38 @@ class QQChannel(BaseChannel):
         logger.info("QQ bot stopped")
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through QQ."""
+        """Send a message through QQ.
+
+        Raises on delivery failure so the channel manager's retry applies.
+        """
         if not self._client:
             logger.warning("QQ client not initialized")
             return
 
-        try:
-            msg_id = msg.metadata.get("message_id")
-            self._msg_seq += 1
-            use_markdown = self.config.msg_format == "markdown"
-            payload: dict[str, Any] = {
-                "msg_type": 2 if use_markdown else 0,
-                "msg_id": msg_id,
-                "msg_seq": self._msg_seq,
-            }
-            if use_markdown:
-                payload["markdown"] = {"content": msg.content}
-            else:
-                payload["content"] = msg.content
+        msg_id = msg.metadata.get("message_id")
+        self._msg_seq += 1
+        use_markdown = self.config.msg_format == "markdown"
+        payload: dict[str, Any] = {
+            "msg_type": 2 if use_markdown else 0,
+            "msg_id": msg_id,
+            "msg_seq": self._msg_seq,
+        }
+        if use_markdown:
+            payload["markdown"] = {"content": msg.content}
+        else:
+            payload["content"] = msg.content
 
-            chat_type = self._chat_type_cache.get(msg.chat_id, "c2c")
-            if chat_type == "group":
-                await self._client.api.post_group_message(
-                    group_openid=msg.chat_id,
-                    **payload,
-                )
-            else:
-                await self._client.api.post_c2c_message(
-                    openid=msg.chat_id,
-                    **payload,
-                )
-        except Exception as e:
-            logger.error("Error sending QQ message: {}", e)
+        chat_type = self._chat_type_cache.get(msg.chat_id, "c2c")
+        if chat_type == "group":
+            await self._client.api.post_group_message(
+                group_openid=msg.chat_id,
+                **payload,
+            )
+        else:
+            await self._client.api.post_c2c_message(
+                openid=msg.chat_id,
+                **payload,
+            )
 
     async def _on_message(self, data: "C2CMessage | GroupMessage", is_group: bool = False) -> None:
         """Handle incoming message from QQ."""

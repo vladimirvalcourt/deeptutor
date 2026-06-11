@@ -4,6 +4,7 @@ import {
   ClipboardList,
   History,
   NotebookPen,
+  UserRound,
   Wand2,
   type LucideIcon,
 } from "lucide-react";
@@ -12,6 +13,7 @@ export type SpaceItemKey =
   | "chat_history"
   | "notebooks"
   | "question_bank"
+  | "personas"
   | "skills";
 
 export type SpaceMemoryFile = "summary" | "profile";
@@ -48,10 +50,17 @@ export const SPACE_ITEMS: SpaceItem[] = [
     icon: ClipboardList,
   },
   {
+    key: "personas",
+    href: "/space/personas",
+    label: "Personas",
+    description: "Behavior presets you can apply per chat turn.",
+    icon: UserRound,
+  },
+  {
     key: "skills",
     href: "/space/skills",
     label: "Skills",
-    description: "Behavior playbooks that guide chat responses.",
+    description: "Capability playbooks the model reads on demand.",
     icon: Wand2,
   },
 ];

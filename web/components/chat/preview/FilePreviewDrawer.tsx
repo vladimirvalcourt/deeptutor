@@ -19,6 +19,8 @@ const ImagePreview = dynamic(() => import("./previewers/ImagePreview"));
 const SvgPreview = dynamic(() => import("./previewers/SvgPreview"));
 const MarkdownPreview = dynamic(() => import("./previewers/MarkdownPreview"));
 const TextPreview = dynamic(() => import("./previewers/TextPreview"));
+const DocxPreview = dynamic(() => import("./previewers/DocxPreview"));
+const XlsxPreview = dynamic(() => import("./previewers/XlsxPreview"));
 const OfficeTextPreview = dynamic(
   () => import("./previewers/OfficeTextPreview"),
 );
@@ -280,6 +282,10 @@ const PreviewBody = memo(function PreviewBody({
   switch (kind) {
     case "pdf":
       return <PdfPreview url={previewUrl} filename={filename} />;
+    case "docx":
+      return <DocxPreview url={previewUrl} />;
+    case "xlsx":
+      return <XlsxPreview url={previewUrl} />;
     case "image":
       return <ImagePreview url={previewUrl} filename={filename} />;
     case "svg":

@@ -26,7 +26,7 @@ pip install -e .
 deeptutor init
 
 # 可选附加组件
-pip install -e ".[tutorbot]"       # TutorBot 智能体引擎 + 各渠道 SDK
+pip install -e ".[partners]"       # Partners 渠道 SDK + MCP 客户端
 pip install -e ".[math-animator]"  # 数学动画（另需系统 LaTeX/ffmpeg）
 pip install -e ".[all]"            # 全部依赖（含开发工具）
 ```
@@ -136,8 +136,14 @@ deeptutor chat [options]
 | `/kb <name>\|none` | 切换知识库 |
 | `/history add <id>\|clear` | 管理历史引用 |
 | `/notebook add <ref>\|clear` | 管理笔记本引用 |
+| `/regenerate`（别名 `/retry`） | 重跑上一条用户消息 |
+| `/show last\|<n>` | 展开被截断的工具结果或折叠的思考过程 |
 | `/refs` | 查看当前设置 |
 | `/config show\|set\|clear` | 管理 capability 配置 |
+
+回答生成期间按 `Ctrl-C` 会取消当前 turn 并回到输入提示符;模型通过
+`ask_user` 提问时,会在终端内渲染选项卡片并等待输入(非交互式 stdin
+下自动提交空回复,turn 不会挂起)。
 
 ---
 

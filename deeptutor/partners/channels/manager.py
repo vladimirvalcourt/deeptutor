@@ -72,13 +72,13 @@ class ChannelManager:
             try:
                 channel = cls(section, self.bus)
                 channel.transcription_api_key = self._groq_api_key
-                # Effective per-channel delivery flags: partner-level master
-                # switch AND the channel's own override (both default True).
-                channel.send_progress = self.channels_config.send_progress and (
-                    self._resolve_bool_override(section, "send_progress", default=True)
+                # Effective delivery flags are per-channel only. Historical
+                # top-level channel config keys are ignored at runtime.
+                channel.send_progress = self._resolve_bool_override(
+                    section, "send_progress", default=True
                 )
-                channel.send_tool_hints = self.channels_config.send_tool_hints and (
-                    self._resolve_bool_override(section, "send_tool_hints", default=True)
+                channel.send_tool_hints = self._resolve_bool_override(
+                    section, "send_tool_hints", default=True
                 )
                 self.channels[name] = channel
                 _logger().info("{} channel enabled", cls.display_name)

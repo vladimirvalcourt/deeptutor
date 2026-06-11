@@ -120,9 +120,13 @@ def _strip_thinking_preamble(text: str) -> str:
     brace = text.index("{")
     if brace > 0:
         before = text[:brace].strip()
-        if not before or before.lower().startswith(
-            ("here", "think", "let me", "ok", "okay", "i will", "first", "note", "so")
-        ) or before.rstrip(".").isdigit():
+        if (
+            not before
+            or before.lower().startswith(
+                ("here", "think", "let me", "ok", "okay", "i will", "first", "note", "so")
+            )
+            or before.rstrip(".").isdigit()
+        ):
             return text[brace:]
     return text
 

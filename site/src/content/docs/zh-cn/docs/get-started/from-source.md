@@ -42,7 +42,7 @@ python -m pip install --upgrade pip
 
 ```bash
 pip install -e ".[dev]"             # 测试 / lint 工具
-pip install -e ".[tutorbot]"        # TutorBot 引擎 + channel SDKs
+pip install -e ".[partners]"        # Partners 渠道 SDK + MCP 客户端
 pip install -e ".[matrix]"          # 不带 E2EE / libolm 的 Matrix channel
 pip install -e ".[matrix-e2e]"      # 带 E2EE 的 Matrix；需要 libolm
 pip install -e ".[math-animator]"   # Manim 插件；需要 LaTeX / ffmpeg / 系统库

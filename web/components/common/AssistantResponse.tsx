@@ -4,7 +4,10 @@ import { Fragment, memo, useMemo } from "react";
 
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import ModelThinkingCard from "@/components/common/ModelThinkingCard";
-import { hasVisibleMarkdownContent } from "@/lib/markdown-display";
+import {
+  hasVisibleMarkdownContent,
+  stripArtifactAnnotations,
+} from "@/lib/markdown-display";
 import { parseModelThinkingSegments } from "@/lib/think-segments";
 import { useSmoothStreamText } from "@/hooks/useSmoothStreamText";
 
@@ -24,12 +27,12 @@ interface AssistantResponseProps {
 
 function AssistantResponseImpl({
   content,
-  className = "text-[14px] leading-[1.75]",
+  className = "text-[16px] leading-[1.75]",
   isStreaming = false,
 }: AssistantResponseProps) {
   const displayContent = useSmoothStreamText(content, isStreaming);
   const segments = useMemo(
-    () => parseModelThinkingSegments(displayContent),
+    () => parseModelThinkingSegments(stripArtifactAnnotations(displayContent)),
     [displayContent],
   );
 

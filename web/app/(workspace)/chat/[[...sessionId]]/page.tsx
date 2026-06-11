@@ -36,9 +36,8 @@ import { ChatMessageList } from "@/components/chat/home/ChatMessages";
 // clicking a chip becomes a single CSS class flip, no chunk fetch + double
 // render. The heavy renderers inside still load lazily.
 import FilePreviewDrawer from "@/components/chat/preview/FilePreviewDrawer";
-import SessionActivityPanel, {
-  buildSessionActivity,
-} from "@/components/chat/home/SessionActivityPanel";
+import { buildSessionActivity } from "@/components/chat/home/SessionActivityPanel";
+import Tooltip from "@/components/common/Tooltip";
 import SessionViewerPanel, {
   type SessionViewerPanelHandle,
 } from "@/components/chat/home/SessionViewerPanel";
@@ -50,13 +49,7 @@ import {
   GeogebraTabProvider,
   useGeogebraTabOpener,
 } from "@/context/GeogebraTabContext";
-import {
-  BookmarkPlus,
-  BookOpen,
-  Download,
-  PanelRight,
-  SquarePen,
-} from "lucide-react";
+import { BookmarkPlus, Download, PanelRight } from "lucide-react";
 import {
   useUnifiedChat,
   type MessageAttachment,
@@ -130,9 +123,6 @@ const QuestionBankPicker = dynamic(
     ssr: false,
   },
 );
-const SkillsPicker = dynamic(() => import("@/components/chat/SkillsPicker"), {
-  ssr: false,
-});
 const MemoryPicker = dynamic(() => import("@/components/chat/MemoryPicker"), {
   ssr: false,
 });
@@ -294,6 +284,7 @@ export default function ChatPage() {
     setCapability,
     setKBs,
     setLLMSelection,
+    setPersonaSelection,
     sendMessage,
     cancelStreamingTurn,
     submitUserReply,
@@ -327,31 +318,6 @@ export default function ChatPage() {
   const [previewSource, setPreviewSource] = useState<FilePreviewSource | null>(
     null,
   );
-  // When the chat column squeezes (e.g. the Viewer panel opens), the header
-  // action labels can collide. We measure the actual header width and flip
-  // to icon-only buttons below a threshold so the row never overflows.
-  // Important: read full border-box width via getBoundingClientRect — the
-  // ResizeObserverEntry.contentRect excludes the header's px-6 padding
-  // (48 px), which makes a "naive" threshold land 48 px below where labels
-  // actually start colliding.
-  const headerRef = useRef<HTMLDivElement | null>(null);
-  const [headerMeasuredWidth, setHeaderMeasuredWidth] = useState<number>(
-    Number.POSITIVE_INFINITY,
-  );
-  useEffect(() => {
-    const el = headerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    setHeaderMeasuredWidth(el.getBoundingClientRect().width);
-    const observer = new ResizeObserver(() => {
-      // entry.contentRect drops padding; the visual collision happens at
-      // border-box width, so read it directly off the element.
-      if (headerRef.current) {
-        setHeaderMeasuredWidth(headerRef.current.getBoundingClientRect().width);
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
   // Right-side panels — Activity (floating cards) and Viewer (full sidebar
   // with tabs for file previews + web pages). Each independently togglable
   // and persisted across reloads.
@@ -359,41 +325,14 @@ export default function ChatPage() {
   // We initialise both to `false` so the SSR-rendered HTML matches the
   // first client render exactly (no hydration mismatch). The persisted
   // preference is then applied in a post-mount effect below.
-  const [activityPanelOpen, setActivityPanelOpen] = useState(false);
+  // Single right-side panel: the Activity/Viewer. Its home view is the
+  // session activity; files and web pages open as tabs alongside it.
   const [viewerPanelOpen, setViewerPanelOpen] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (window.localStorage.getItem("dt:chat:activity-panel") === "1") {
-      setActivityPanelOpen(true);
-    }
     if (window.localStorage.getItem("dt:chat:viewer-panel") === "1") {
       setViewerPanelOpen(true);
     }
-  }, []);
-  const toggleActivityPanel = useCallback(() => {
-    setActivityPanelOpen((prev) => {
-      const next = !prev;
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("dt:chat:activity-panel", next ? "1" : "0");
-      }
-      return next;
-    });
-  }, []);
-  /**
-   * Force the Activity panel open. Used by the send-gate when the user
-   * tries to send while the active capability still needs its config
-   * confirmed — we surface the right-side panel so the Confirm button is
-   * visible. Persisted to localStorage so subsequent reloads remember the
-   * preference. Also used by the capability-switch auto-open effect below.
-   */
-  const ensureActivityPanelOpen = useCallback(() => {
-    setActivityPanelOpen((prev) => {
-      if (prev) return prev;
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("dt:chat:activity-panel", "1");
-      }
-      return true;
-    });
   }, []);
   const setViewerOpen = useCallback((next: boolean) => {
     setViewerPanelOpen(next);
@@ -410,13 +349,18 @@ export default function ChatPage() {
       return next;
     });
   }, []);
-  // The header's five labelled actions ("Save to Notebook" / "Download
-  // Markdown" / "New chat" / "Activity" / "Viewer") need roughly 720 px
-  // (label widths + gaps + the capability title) to fit on one row without
-  // colliding. Below that we collapse all five to icon-only. We also
-  // force-collapse whenever the Viewer panel is open — its squeeze is
-  // aggressive enough that labels are guaranteed to overflow.
-  const headerCompact = viewerPanelOpen || headerMeasuredWidth < 720;
+  /**
+   * Force the panel open on its Activity home. Used by the send-gate when the
+   * user tries to send while the active capability still needs its config
+   * confirmed — the config card lives on the Activity home, so we open the
+   * panel and switch to it. Also used by the capability-switch auto-open
+   * effect below.
+   */
+  const viewerPanelRef = useRef<SessionViewerPanelHandle | null>(null);
+  const ensureActivityPanelOpen = useCallback(() => {
+    setViewerOpen(true);
+    viewerPanelRef.current?.focusActivityHome();
+  }, [setViewerOpen]);
   const attachmentErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -503,10 +447,12 @@ export default function ChatPage() {
   const [showBookPicker, setShowBookPicker] = useState(false);
   const [showHistoryPicker, setShowHistoryPicker] = useState(false);
   const [showQuestionBankPicker, setShowQuestionBankPicker] = useState(false);
-  const [showSkillsPicker, setShowSkillsPicker] = useState(false);
+  // Session persona selector (toolbar chip / `/persona` / @space entry all
+  // open the same dropdown). The selection itself lives in the unified chat
+  // context (state.personaSelection) so it follows the session.
+  const [personaSelectorOpen, setPersonaSelectorOpen] = useState(false);
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   const [spaceMenuOpen, setSpaceMenuOpen] = useState(false);
-  const [kbMenuOpen, setKbMenuOpen] = useState(false);
   const [selectedNotebookRecords, setSelectedNotebookRecords] = useState<
     SelectedRecord[]
   >([]);
@@ -519,8 +465,6 @@ export default function ChatPage() {
   const [selectedQuestionEntries, setSelectedQuestionEntries] = useState<
     SelectedQuestionEntry[]
   >([]);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [skillsAutoMode, setSkillsAutoMode] = useState(false);
   const [selectedMemoryFiles, setSelectedMemoryFiles] = useState<
     SpaceMemoryFile[]
   >([]);
@@ -529,8 +473,6 @@ export default function ChatPage() {
   const capBtnRef = useRef<HTMLButtonElement>(null);
   const spaceMenuRef = useRef<HTMLDivElement>(null);
   const spaceBtnRef = useRef<HTMLButtonElement>(null);
-  const kbMenuRef = useRef<HTMLDivElement>(null);
-  const kbBtnRef = useRef<HTMLButtonElement>(null);
   const initialLoadRef = useRef(false);
   // Bridge ref: ``ChatComposer`` writes a prefill function into this on
   // mount; ``ChatMessageList`` reads it via ``handlePrefillComposer`` so an
@@ -539,6 +481,18 @@ export default function ChatPage() {
   const handlePrefillComposer = useCallback((text: string) => {
     prefillInputRef.current?.(text);
   }, []);
+
+  // A clickable node inside an inlined visualization SVG (data-prompt) — and the
+  // html widget's sendPrompt bridge — dispatch this window event; mirror it into
+  // the composer as a prefilled follow-up (user confirms before sending).
+  useEffect(() => {
+    const onVizPrompt = (e: Event) => {
+      const text = (e as CustomEvent<string>).detail;
+      if (typeof text === "string" && text) handlePrefillComposer(text);
+    };
+    window.addEventListener("dt:visualize-prompt", onVizPrompt);
+    return () => window.removeEventListener("dt:visualize-prompt", onVizPrompt);
+  }, [handlePrefillComposer]);
 
   const activeCap = useMemo(
     () => getCapability(state.activeCapability),
@@ -836,65 +790,6 @@ export default function ChatPage() {
       console.error("Failed to copy assistant message:", error);
     }
   }, []);
-  const handleAnswerNow = useCallback(
-    (
-      snapshot?: MessageRequestSnapshot,
-      assistantMsg?: { content: string; events?: StreamEvent[] },
-    ) => {
-      if (!snapshot || !state.isStreaming) return;
-      const answerNowEvents = (assistantMsg?.events ?? []).map((event) => ({
-        type: event.type,
-        stage: event.stage,
-        content: event.content,
-        metadata: event.metadata ?? {},
-      }));
-      cancelStreamingTurn();
-      // Preserve the original capability — chat / visualize / math_animator
-      // each own an answer-now fast-path. The backend orchestrator only
-      // falls back to ``chat`` if the requested capability is missing.
-      // Solve / Quiz / Research no longer expose Answer Now (their UI
-      // gate filters the button out), so we never reach here for them.
-      const answerNowSnapshot: MessageRequestSnapshot = {
-        ...snapshot,
-        language: appLanguage,
-        config: {
-          ...(snapshot.config || {}),
-          answer_now_context: {
-            original_user_message: snapshot.content,
-            partial_response: assistantMsg?.content || "",
-            events: answerNowEvents,
-          },
-        },
-      };
-      window.setTimeout(() => {
-        sendMessage(
-          answerNowSnapshot.content,
-          answerNowSnapshot.attachments,
-          answerNowSnapshot.config,
-          answerNowSnapshot.notebookReferences,
-          answerNowSnapshot.historyReferences,
-          {
-            displayUserMessage: false,
-            persistUserMessage: false,
-            requestSnapshotOverride: answerNowSnapshot,
-            bookReferences: answerNowSnapshot.bookReferences,
-          },
-          answerNowSnapshot.questionNotebookReferences,
-          answerNowSnapshot.skills,
-          answerNowSnapshot.memoryReferences,
-        );
-        shouldAutoScrollRef.current = true;
-      }, 0);
-    },
-    [
-      appLanguage,
-      cancelStreamingTurn,
-      sendMessage,
-      shouldAutoScrollRef,
-      state.isStreaming,
-    ],
-  );
-
   /* ---- URL-driven session loading ---- */
   useEffect(() => {
     if (initialLoadRef.current) return;
@@ -1052,13 +947,6 @@ export default function ChatPage() {
         !spaceBtnRef.current.contains(t)
       )
         setSpaceMenuOpen(false);
-      if (
-        kbMenuRef.current &&
-        !kbMenuRef.current.contains(t) &&
-        kbBtnRef.current &&
-        !kbBtnRef.current.contains(t)
-      )
-        setKbMenuOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -1317,10 +1205,9 @@ export default function ChatPage() {
     handleChangeResearchConfig,
   ]);
 
-  const viewerPanelRef = useRef<SessionViewerPanelHandle | null>(null);
-  // Clicking an attachment (from the Activity panel or from a chat message)
-  // routes into the Viewer panel as a new file tab. The viewer auto-opens
-  // and the preference is persisted so a follow-up click feels instant.
+  // Clicking an attachment (from the Activity home or from a chat message)
+  // routes into the panel as a new file tab. It auto-opens and the
+  // preference is persisted so a follow-up click feels instant.
   const handlePreviewMessageAttachment = useCallback((a: MessageAttachment) => {
     viewerPanelRef.current?.openFileTab(a);
   }, []);
@@ -1401,8 +1288,6 @@ export default function ChatPage() {
           !selectedNotebookRecords.length &&
           !selectedHistorySessions.length &&
           !selectedQuestionEntries.length &&
-          !selectedSkills.length &&
-          !skillsAutoMode &&
           !selectedMemoryFiles.length) ||
         state.isStreaming
       )
@@ -1439,7 +1324,6 @@ export default function ChatPage() {
         config = buildResearchWSConfig(researchConfig);
       }
 
-      const skillsPayload = skillsAutoMode ? ["auto"] : [...selectedSkills];
       const memoryPayload = [...memoryReferencesPayload];
       const messageContent =
         content ||
@@ -1447,13 +1331,15 @@ export default function ChatPage() {
         selectedBookReferences.length ||
         selectedHistorySessions.length ||
         selectedQuestionEntries.length ||
-        skillsPayload.length ||
         memoryPayload.length
           ? t("Please use the selected context to help with this request.")
           : "") ||
         (attachments.some((a) => a.type === "image")
           ? t("Please analyze the attached image(s).")
           : "");
+      // Persona is NOT passed per-call here: it is a session-level
+      // preference (state.personaSelection) that sendMessage resolves and
+      // sends with every turn.
       sendMessage(
         messageContent,
         extraAttachments,
@@ -1462,7 +1348,7 @@ export default function ChatPage() {
         historyReferencesPayload,
         { bookReferences: bookReferencesPayload },
         questionNotebookReferencesPayload,
-        skillsPayload,
+        undefined,
         memoryPayload,
       );
       shouldAutoScrollRef.current = true;
@@ -1471,8 +1357,6 @@ export default function ChatPage() {
       setSelectedNotebookRecords([]);
       setSelectedHistorySessions([]);
       setSelectedQuestionEntries([]);
-      setSelectedSkills([]);
-      setSkillsAutoMode(false);
       setSelectedMemoryFiles([]);
     },
     [
@@ -1494,8 +1378,6 @@ export default function ChatPage() {
       selectedBookReferences.length,
       selectedNotebookRecords.length,
       selectedQuestionEntries.length,
-      selectedSkills,
-      skillsAutoMode,
       sendMessage,
       shouldAutoScrollRef,
       state.isStreaming,
@@ -1540,7 +1422,7 @@ export default function ChatPage() {
           bookReferences: originalSnapshot?.bookReferences,
         },
         originalSnapshot?.questionNotebookReferences,
-        originalSnapshot?.skills,
+        originalSnapshot?.persona,
         originalSnapshot?.memoryReferences,
       );
       shouldAutoScrollRef.current = true;
@@ -1575,8 +1457,9 @@ export default function ChatPage() {
   const handleSelectQuestionBankPicker = useCallback(() => {
     setShowQuestionBankPicker(true);
   }, []);
-  const handleSelectSkillsPicker = useCallback(() => {
-    setShowSkillsPicker(true);
+  const handleSelectPersonaPicker = useCallback(() => {
+    // The @space "Persona" entry now opens the session persona selector.
+    setPersonaSelectorOpen(true);
   }, []);
   const handleSelectMemoryPicker = useCallback(() => {
     setShowMemoryPicker(true);
@@ -1601,17 +1484,9 @@ export default function ChatPage() {
       prev.filter((entry) => entry.id !== entryId),
     );
   }, []);
-  const handleToggleSkill = useCallback((name: string) => {
-    setSkillsAutoMode(false);
-    setSelectedSkills((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name],
-    );
-  }, []);
-
-  const handleSetSkillsAuto = useCallback((auto: boolean) => {
-    setSkillsAutoMode(auto);
-    if (auto) setSelectedSkills([]);
-  }, []);
+  const handleClearPersona = useCallback(() => {
+    setPersonaSelection("");
+  }, [setPersonaSelection]);
 
   const handleToggleMemoryFile = useCallback((file: SpaceMemoryFile) => {
     setSelectedMemoryFiles((prev) =>
@@ -1657,16 +1532,6 @@ export default function ChatPage() {
     },
     [],
   );
-  const handleCloseSkillsPicker = useCallback(() => {
-    setShowSkillsPicker(false);
-  }, []);
-  const handleApplySkillsSelection = useCallback(
-    (selection: { auto: boolean; skills: string[] }) => {
-      setSkillsAutoMode(selection.auto);
-      setSelectedSkills(selection.auto ? [] : selection.skills);
-    },
-    [],
-  );
   const handleCloseMemoryPicker = useCallback(() => {
     setShowMemoryPicker(false);
   }, []);
@@ -1676,10 +1541,6 @@ export default function ChatPage() {
   const handleCloseSaveModal = useCallback(() => {
     setShowSaveModal(false);
   }, []);
-
-  const handleNewChat = useCallback(() => {
-    router.push("/chat");
-  }, [router]);
 
   const handleDownloadMarkdown = useCallback(() => {
     if (!state.messages.length) return;
@@ -1705,14 +1566,10 @@ export default function ChatPage() {
           // transition lives in `chat-preview-shell` (globals.css) so we can
           // hand-tune it without fighting Tailwind's arbitrary-value parser.
           data-preview-open={previewSource ? "true" : "false"}
-          data-activity-open={activityPanelOpen ? "true" : "false"}
           data-viewer-open={viewerPanelOpen ? "true" : "false"}
           className="chat-preview-shell flex h-full flex-col overflow-hidden bg-[var(--background)]"
         >
-          <div
-            ref={headerRef}
-            className="mx-auto flex w-full max-w-[960px] flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-6 pt-3 pb-0"
-          >
+          <div className="mx-auto flex w-full max-w-[960px] flex-wrap items-center justify-between gap-x-3 gap-y-1.5 px-6 pt-3 pb-0">
             <div className="group/title min-w-0 flex flex-1 items-center gap-2">
               {sessionTitleEditing ? (
                 <input
@@ -1723,7 +1580,7 @@ export default function ChatPage() {
                   onKeyDown={handleSessionTitleKeyDown}
                   disabled={sessionTitleSaving}
                   aria-label={t("Session title")}
-                  className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 text-[15px] font-semibold tracking-[-0.01em] text-[var(--foreground)] shadow-sm outline-none transition focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/20 disabled:opacity-60"
+                  className="min-w-0 flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-1.5 font-serif text-[17px] font-semibold tracking-[-0.01em] text-[var(--foreground)] shadow-sm outline-none transition focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/20 disabled:opacity-60"
                   maxLength={100}
                 />
               ) : (
@@ -1736,7 +1593,7 @@ export default function ChatPage() {
                       ? t("Click to rename session")
                       : t("Start a conversation to rename")
                   }
-                  className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl px-2 py-1 text-left text-[15px] font-semibold tracking-[-0.01em] text-[var(--foreground)] transition hover:bg-[var(--muted)]/55 disabled:cursor-default disabled:hover:bg-transparent"
+                  className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-xl px-2 py-1 text-left font-serif text-[17px] font-semibold tracking-[-0.01em] text-[var(--foreground)] transition hover:bg-[var(--muted)]/55 disabled:cursor-default disabled:hover:bg-transparent"
                 >
                   <span className="truncate">{displaySessionTitle}</span>
                   {canRenameSession ? (
@@ -1755,16 +1612,14 @@ export default function ChatPage() {
                 </span>
               ) : null}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-0.5">
               <HeaderActionButton
-                compact={headerCompact}
                 onClick={() => setShowSaveModal(true)}
                 disabled={!chatSavePayload}
                 icon={BookmarkPlus}
                 label={t("Save to Notebook")}
               />
               <HeaderActionButton
-                compact={headerCompact}
                 onClick={handleDownloadMarkdown}
                 disabled={!state.messages.length}
                 icon={Download}
@@ -1772,26 +1627,11 @@ export default function ChatPage() {
                 title={t("Download chat history as Markdown")}
               />
               <HeaderActionButton
-                compact={headerCompact}
-                onClick={handleNewChat}
-                icon={SquarePen}
-                label={t("New chat")}
-              />
-              <HeaderActionButton
-                compact={headerCompact}
-                onClick={toggleActivityPanel}
-                active={activityPanelOpen}
-                icon={PanelRight}
-                label={t("Activity")}
-                title={t("Session activity")}
-              />
-              <HeaderActionButton
-                compact={headerCompact}
                 onClick={toggleViewerPanel}
                 active={viewerPanelOpen}
-                icon={BookOpen}
-                label={t("Viewer")}
-                title={t("Open viewer")}
+                icon={PanelRight}
+                label={t("Activity")}
+                title={t("Session activity, attachments & previews")}
               />
             </div>
           </div>
@@ -1807,7 +1647,7 @@ export default function ChatPage() {
                     className="h-10 w-10 select-none"
                     draggable={false}
                   />
-                  <h1 className="font-serif text-[44px] font-medium leading-[1.1] tracking-[-0.015em] text-[var(--foreground)]">
+                  <h1 className="font-serif text-[40px] font-medium leading-[1.1] tracking-[-0.015em] text-[var(--foreground)]">
                     {t(welcomeGreeting)}
                   </h1>
                 </div>
@@ -1818,7 +1658,7 @@ export default function ChatPage() {
                 data-chat-scroll-root="true"
                 onScroll={handleMessagesScroll}
                 onClick={handleMessagesClick}
-                className={`mx-auto w-full flex-1 min-h-0 space-y-7 overflow-y-auto pr-4 [scrollbar-gutter:stable] ${hasMessages ? "pt-6" : "pt-2 pb-6"}`}
+                className={`mx-auto w-full flex-1 min-h-0 space-y-9 overflow-y-auto pr-4 [scrollbar-gutter:stable] ${hasMessages ? "pt-6" : "pt-2 pb-6"}`}
                 style={
                   hasMessages
                     ? (() => {
@@ -1845,7 +1685,6 @@ export default function ChatPage() {
                   isStreaming={state.isStreaming}
                   sessionId={state.sessionId}
                   language={state.language}
-                  onAnswerNow={handleAnswerNow}
                   onCopyAssistantMessage={copyAssistantMessage}
                   onRegenerateMessage={handleRegenerateMessage}
                   onConfirmOutline={handleConfirmOutline}
@@ -1866,13 +1705,10 @@ export default function ChatPage() {
               capBtnRef={capBtnRef}
               spaceMenuRef={spaceMenuRef}
               spaceBtnRef={spaceBtnRef}
-              kbMenuRef={kbMenuRef}
-              kbBtnRef={kbBtnRef}
               dragCounter={dragCounter}
               dragging={dragging}
               capMenuOpen={capMenuOpen}
               spaceMenuOpen={spaceMenuOpen}
-              kbMenuOpen={kbMenuOpen}
               hasMessages={hasMessages}
               attachments={attachments}
               attachmentError={attachmentError}
@@ -1888,8 +1724,7 @@ export default function ChatPage() {
               selectedHistorySessions={selectedHistorySessions}
               selectedQuestionEntries={selectedQuestionEntries}
               notebookReferenceGroups={notebookReferenceGroups}
-              selectedSkills={selectedSkills}
-              skillsAutoMode={skillsAutoMode}
+              selectedPersona={null}
               selectedMemoryFiles={selectedMemoryFiles}
               selectedKnowledgeBases={state.knowledgeBases}
               isStreaming={state.isStreaming}
@@ -1900,17 +1735,19 @@ export default function ChatPage() {
               capabilities={CAPABILITIES}
               onSetCapMenuOpen={setCapMenuOpen}
               onSetSpaceMenuOpen={setSpaceMenuOpen}
-              onSetKbMenuOpen={setKbMenuOpen}
               onToggleKB={handleToggleKB}
               onSelectLLM={setLLMSelection}
               onSelectNotebookPicker={handleSelectNotebookPicker}
               onSelectBookPicker={handleSelectBookPicker}
               onSelectHistoryPicker={handleSelectHistoryPicker}
               onSelectQuestionBankPicker={handleSelectQuestionBankPicker}
-              onSelectSkillsPicker={handleSelectSkillsPicker}
+              onSelectPersonaPicker={handleSelectPersonaPicker}
               onSelectMemoryPicker={handleSelectMemoryPicker}
-              onToggleSkill={handleToggleSkill}
-              onSetSkillsAuto={handleSetSkillsAuto}
+              onClearPersona={handleClearPersona}
+              personaSelection={state.personaSelection}
+              onPersonaSelectionChange={setPersonaSelection}
+              personaSelectorOpen={personaSelectorOpen}
+              onPersonaSelectorOpenChange={setPersonaSelectorOpen}
               onToggleMemoryFile={handleToggleMemoryFile}
               onSend={handleSend}
               onRemoveAttachment={removeAttachment}
@@ -1959,13 +1796,6 @@ export default function ChatPage() {
             onClose={handleCloseQuestionBankPicker}
             onApply={handleApplyQuestionEntries}
           />
-          <SkillsPicker
-            open={showSkillsPicker}
-            initialAuto={skillsAutoMode}
-            initialSkills={selectedSkills}
-            onClose={handleCloseSkillsPicker}
-            onApply={handleApplySkillsSelection}
-          />
           <MemoryPicker
             open={showMemoryPicker}
             initialFiles={selectedMemoryFiles}
@@ -1983,18 +1813,12 @@ export default function ChatPage() {
             source={previewSource}
             onClose={handleClosePreview}
           />
-          <SessionActivityPanel
-            open={
-              activityPanelOpen && previewSource === null && !viewerPanelOpen
-            }
-            activity={sessionActivity}
-            onOpenAttachment={handlePreviewMessageAttachment}
-            configSection={capabilityConfigSection}
-          />
           <SessionViewerPanel
             ref={viewerPanelRef}
             open={viewerPanelOpen && previewSource === null}
             sessionId={state.sessionId}
+            activity={sessionActivity}
+            configSection={capabilityConfigSection}
             onClose={() => setViewerOpen(false)}
             onAutoOpen={() => setViewerOpen(true)}
           />
@@ -2053,8 +1877,9 @@ function GeogebraTabBridge({
  * what it does. Optional `active` flag paints the button with a primary
  * tint, used by the panel-toggle buttons to surface their on/off state.
  */
+// Claude-style icon-only header action: bare 16px glyph, function revealed
+// by an instant tooltip; active state gets a primary tint.
 function HeaderActionButton({
-  compact,
   onClick,
   disabled,
   active,
@@ -2062,7 +1887,6 @@ function HeaderActionButton({
   label,
   title,
 }: {
-  compact: boolean;
   onClick: () => void;
   disabled?: boolean;
   active?: boolean;
@@ -2071,22 +1895,20 @@ function HeaderActionButton({
   title?: string;
 }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title ?? label}
-      aria-label={label}
-      aria-pressed={active}
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        compact ? "px-2 py-1.5" : "px-3 py-1.5"
-      } ${
-        active
-          ? "border-[var(--primary)]/40 bg-[color-mix(in_srgb,var(--primary)_8%,var(--card))] text-[var(--primary)] hover:border-[var(--primary)]/55"
-          : "border-[var(--border)]/50 text-[var(--muted-foreground)] hover:border-[var(--border)] hover:text-[var(--foreground)] disabled:hover:border-[var(--border)]/50 disabled:hover:text-[var(--muted-foreground)]"
-      }`}
-    >
-      <Icon size={14} strokeWidth={1.7} className="shrink-0" />
-      {compact ? null : <span>{label}</span>}
-    </button>
+    <Tooltip label={title ?? label} side="bottom">
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        aria-pressed={active}
+        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-[background-color,color,transform] duration-150 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 ${
+          active
+            ? "bg-[var(--primary)]/10 text-[var(--primary)]"
+            : "text-[var(--muted-foreground)] hover:bg-[var(--muted)]/55 hover:text-[var(--foreground)] disabled:hover:bg-transparent disabled:hover:text-[var(--muted-foreground)]"
+        }`}
+      >
+        <Icon size={16} strokeWidth={1.7} className="shrink-0" />
+      </button>
+    </Tooltip>
   );
 }

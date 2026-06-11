@@ -42,7 +42,7 @@ python -m pip install --upgrade pip
 
 ```bash
 pip install -e ".[dev]"             # tests / lint tools
-pip install -e ".[tutorbot]"        # TutorBot engine + channel SDKs
+pip install -e ".[partners]"        # Partner channel SDKs + MCP client
 pip install -e ".[matrix]"          # Matrix channel without E2EE / libolm
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; requires libolm
 pip install -e ".[math-animator]"   # Manim addon; requires LaTeX / ffmpeg / system libs

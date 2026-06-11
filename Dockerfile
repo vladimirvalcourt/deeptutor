@@ -113,6 +113,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     NODE_ENV=production \
     DEEPTUTOR_IGNORE_PROCESS_ENV_OVERRIDES=1
 
+# Code-execution sandbox: the restricted-subprocess backend (which the office
+# skills — docx/pdf/pptx/xlsx — rely on for `exec` / `code_execution`) is
+# enabled by default via the `sandbox_allow_subprocess` runtime setting
+# (system.json, default on), exported to DEEPTUTOR_SANDBOX_ALLOW_SUBPROCESS at
+# startup. No hardcoded ENV here — that would override the setting and block
+# disabling it. docker-compose still routes exec to the hardened runner sidecar
+# (DEEPTUTOR_SANDBOX_RUNNER_URL), which build_backend() prefers.
+
 WORKDIR /app
 
 # Install system dependencies

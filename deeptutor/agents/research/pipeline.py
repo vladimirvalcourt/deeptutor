@@ -5,7 +5,7 @@ Phase shape:
 
 * **Phase 1 (Rephrase)** — a mini agentic loop over ``THINK`` / ``TOOL``
   / ``FINISH`` whose only available tool is ``ask_user``. Up to 3
-  ask_user rounds (each with 1-3 questions on one card). FINISH text
+  ask_user rounds (each with 1-4 questions on one card). FINISH text
   is the refined research topic. May FINISH early when the user is
   unambiguous.
 * **Phase 2 (Decompose)** — one ``OUTLINE`` labeled step turning the
@@ -85,6 +85,7 @@ from deeptutor.services.llm import get_llm_config, prepare_multimodal_messages
 from deeptutor.services.path_service import get_path_service
 from deeptutor.services.prompt import get_prompt_manager
 from deeptutor.services.prompt.language import append_language_directive
+from deeptutor.services.sandbox import exec_capability_available
 from deeptutor.utils.json_parser import parse_json_response
 
 logger = logging.getLogger(__name__)
@@ -1730,6 +1731,7 @@ class ResearchPipeline:
                 has_sources=False,
                 has_memory=user_has_memory(),
                 has_notebooks=user_has_notebooks(),
+                has_code=exec_capability_available(),
             ),
         )
         return [
@@ -1778,13 +1780,15 @@ class ResearchPipeline:
             if self.kb_name:
                 kwargs.setdefault("kb_name", self.kb_name)
         elif tool_name == "code_execution":
-            kwargs.setdefault("intent", context.user_message)
-            kwargs.setdefault("timeout", 30)
-            kwargs.setdefault("feature", "deep_research")
-            kwargs.setdefault("session_id", context.session_id)
-            kwargs.setdefault("turn_id", turn_id)
+            from deeptutor.services.sandbox import Mount
+
             if task_dir is not None:
-                kwargs.setdefault("workspace_dir", str(task_dir / "code_runs"))
+                code_dir = task_dir / "code_runs"
+                code_dir.mkdir(parents=True, exist_ok=True)
+                kwargs["_sandbox_workdir"] = str(code_dir)
+                kwargs["_sandbox_mounts"] = (
+                    Mount(host_path=str(code_dir), sandbox_path=str(code_dir), read_only=False),
+                )
         elif tool_name == "web_search":
             kwargs.setdefault("query", context.user_message)
             if task_dir is not None:

@@ -66,7 +66,7 @@ Matrix support is in an optional install extra. Three layers:
 |------|---------|
 | Base Matrix (no E2EE) | `pip install -e ".[matrix]"` |
 | Matrix with E2EE | `pip install -e ".[matrix-e2e]"` *(also needs libolm)* |
-| All TutorBot gateways including Matrix | `pip install -e ".[tutorbot]"` |
+| All Partners gateways including Matrix | `pip install -e ".[partners]"` |
 
 For E2EE, install **libolm** first:
 

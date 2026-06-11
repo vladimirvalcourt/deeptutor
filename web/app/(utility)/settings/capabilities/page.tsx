@@ -21,10 +21,10 @@ interface SimpleLLMBlock {
 
 interface ChatBlock {
   temperature: number;
-  max_iterations: number;
+  max_rounds: number;
   stage_budgets: {
+    exploring: number;
     responding: number;
-    answer_now: number;
   };
 }
 
@@ -72,7 +72,7 @@ function isValidCapabilitiesDTO(
   return (
     !!chat &&
     typeof chat.temperature === "number" &&
-    typeof chat.max_iterations === "number" &&
+    typeof chat.max_rounds === "number" &&
     !!chat.stage_budgets &&
     !!solve &&
     typeof solve.max_iterations_per_step === "number" &&
@@ -126,7 +126,10 @@ export default function CapabilitiesSettingsPage() {
   }, [t]);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   const dirty =
@@ -135,7 +138,9 @@ export default function CapabilitiesSettingsPage() {
     JSON.stringify(settings) !== JSON.stringify(serverSnapshot);
 
   const settingsRef = useRef(settings);
-  settingsRef.current = settings;
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const save = useCallback(async () => {
     const current = settingsRef.current;
     if (!current) return;
@@ -287,7 +292,7 @@ export default function CapabilitiesSettingsPage() {
       <SettingSection
         title={t("Chat")}
         description={t(
-          "The agentic chat loop. Stage budgets cap max_tokens per stage; lower the intermediate stages on small-context models.",
+          "Exploring agent loop followed by a respond stage. Stage budgets cap max_tokens per LLM round.",
         )}
       >
         <NumberRow
@@ -301,29 +306,29 @@ export default function CapabilitiesSettingsPage() {
           isFloat
         />
         <NumberRow
-          label={t("Max iterations")}
-          help={t("Hard cap on chat loop iterations per turn.")}
-          value={settings.chat.max_iterations}
-          onChange={(n) => patchChat("max_iterations", n)}
+          label={t("Max rounds")}
+          help={t(
+            "Hard cap on exploring-loop LLM rounds per turn. A round without tool calls ends the loop early.",
+          )}
+          value={settings.chat.max_rounds}
+          onChange={(n) => patchChat("max_rounds", n)}
           min={1}
-          max={100}
+          max={50}
         />
         <NumberRow
-          label={t("Max tokens")}
-          help={t(
-            "Per-iteration budget for the chat LLM call (which emits THINK / TOOL / FINISH labels in a single stream).",
-          )}
-          value={settings.chat.stage_budgets.responding}
-          onChange={(n) => patchStageBudget("responding", n)}
+          label={t("Exploring (max tokens)")}
+          help={t("Budget per exploring-loop round (notes + tool calls).")}
+          value={settings.chat.stage_budgets.exploring}
+          onChange={(n) => patchStageBudget("exploring", n)}
           min={256}
           max={200000}
           step={100}
         />
         <NumberRow
-          label={t("Answer-now (max tokens)")}
-          help={t("Budget for the user-forced short-circuit response.")}
-          value={settings.chat.stage_budgets.answer_now}
-          onChange={(n) => patchStageBudget("answer_now", n)}
+          label={t("Responding (max tokens)")}
+          help={t("Budget for the final user-facing response.")}
+          value={settings.chat.stage_budgets.responding}
+          onChange={(n) => patchStageBudget("responding", n)}
           min={256}
           max={200000}
           step={100}

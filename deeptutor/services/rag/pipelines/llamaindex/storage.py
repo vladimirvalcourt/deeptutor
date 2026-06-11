@@ -27,6 +27,22 @@ class AddStoragePlan:
     storage_dir: Path
 
 
+def _storage_path_from_version_entry(entry: dict[str, Any]) -> Path | None:
+    storage_path = entry.get("storage_path")
+    if storage_path:
+        return Path(str(storage_path))
+
+    version_path = entry.get("version_path")
+    if not version_path:
+        return None
+
+    path = Path(str(version_path))
+    layout = str(entry.get("layout") or "")
+    if layout == "nested_legacy":
+        return path / "llamaindex_storage"
+    return path
+
+
 def cleanup_failed_version_dir(storage_dir: Path) -> bool:
     """Remove an empty flat version dir created by a failed indexing attempt."""
     if not storage_dir.is_dir() or not storage_dir.name.startswith("version-"):
@@ -42,12 +58,14 @@ def cleanup_failed_version_dir(storage_dir: Path) -> bool:
 def resolve_add_storage_plan(kb_dir: Path, signature: EmbeddingSignature | None) -> AddStoragePlan:
     """Choose existing/new storage dirs for incremental adds."""
     matching_version = find_matching_version(kb_dir, signature) if signature is not None else None
-    existing_storage = Path(str(matching_version["storage_path"])) if matching_version else None
+    existing_storage = (
+        _storage_path_from_version_entry(matching_version) if matching_version else None
+    )
 
-    if matching_version and matching_version.get("layout") == "flat":
+    if matching_version and existing_storage and matching_version.get("layout") == "flat":
         return AddStoragePlan(existing_storage=existing_storage, storage_dir=existing_storage)
 
-    if matching_version:
+    if matching_version and existing_storage:
         return AddStoragePlan(
             existing_storage=existing_storage,
             storage_dir=resolve_storage_dir_for_write(kb_dir, signature),

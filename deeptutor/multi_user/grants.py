@@ -15,13 +15,29 @@ GRANTS_DIR = SYSTEM_ROOT / "grants"
 
 def empty_grant(user_id: str) -> dict[str, Any]:
     return {
-        "version": 1,
+        "version": 2,
         "user_id": user_id,
-        "models": {"llm": [], "embedding": [], "search": []},
+        "models": {"llm": []},
         "knowledge_bases": [],
         "skills": [],
-        "spaces": [],
+        # Tool whitelists share the partner-config semantics: ``None`` means
+        # "default" (every tool in the pool), ``[]`` means none, a list is an
+        # explicit whitelist. ``exec_enabled`` is a tri-state override on top
+        # of the deployment exec policy: ``None`` follows the policy, ``False``
+        # always denies, ``True`` is only honored where the sandbox can
+        # actually isolate users (SYSTEM isolation).
+        "enabled_tools": None,
+        "mcp_tools": None,
+        "exec_enabled": None,
     }
+
+
+def _normalize_tool_list(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        return None
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def grant_path(user_id: str) -> Path:
@@ -30,20 +46,28 @@ def grant_path(user_id: str) -> Path:
 
 
 def normalize_grant(user_id: str, payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Coerce any stored/submitted grant payload into the v2 shape.
+
+    v1 grants normalize losslessly for everything that was ever enforced:
+    ``models.embedding`` / ``models.search`` / ``spaces`` had no runtime
+    consumers and are dropped; absent v2 fields default to unrestricted.
+    """
     base = empty_grant(user_id)
     if not isinstance(payload, dict):
         return base
-    base["version"] = int(payload.get("version") or 1)
     base["user_id"] = user_id
     models = payload.get("models") if isinstance(payload.get("models"), dict) else {}
-    for service in ("llm", "embedding", "search"):
-        items = models.get(service) if isinstance(models, dict) else []
-        if not isinstance(items, list):
-            items = []
-        base["models"][service] = [dict(item) for item in items if isinstance(item, dict)]
-    for key in ("knowledge_bases", "skills", "spaces"):
+    items = models.get("llm") if isinstance(models, dict) else []
+    if not isinstance(items, list):
+        items = []
+    base["models"]["llm"] = [dict(item) for item in items if isinstance(item, dict)]
+    for key in ("knowledge_bases", "skills"):
         values = payload.get(key) if isinstance(payload.get(key), list) else []
         base[key] = [dict(item) for item in values if isinstance(item, dict)]
+    for key in ("enabled_tools", "mcp_tools"):
+        base[key] = _normalize_tool_list(payload.get(key))
+    exec_enabled = payload.get("exec_enabled")
+    base["exec_enabled"] = bool(exec_enabled) if isinstance(exec_enabled, bool) else None
     return base
 
 

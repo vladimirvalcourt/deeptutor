@@ -144,11 +144,18 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to start EventBus: {e}")
 
     try:
-        from deeptutor.services.tutorbot import get_tutorbot_manager
+        from deeptutor.services.partners import get_partner_manager
 
-        await get_tutorbot_manager().auto_start_bots()
+        await get_partner_manager().auto_start_partners()
     except Exception as e:
-        logger.warning(f"Failed to auto-start TutorBots: {e}")
+        logger.warning(f"Failed to auto-start partners: {e}")
+
+    try:
+        from deeptutor.services.cron import get_cron_service
+
+        await get_cron_service().start()
+    except Exception as e:
+        logger.warning(f"Failed to start cron service: {e}")
 
     # Ping PocketBase if configured — logs a warning (not an error) if unreachable
     try:
@@ -174,14 +181,22 @@ async def lifespan(app: FastAPI):
     # Execute on shutdown
     logger.info("Application shutdown")
 
-    # Stop TutorBots
+    # Stop cron scheduler
     try:
-        from deeptutor.services.tutorbot import get_tutorbot_manager
+        from deeptutor.services.cron import get_cron_service
 
-        await get_tutorbot_manager().stop_all(preserve_auto_start=True)
-        logger.info("TutorBots stopped")
+        await get_cron_service().stop()
     except Exception as e:
-        logger.warning(f"Failed to stop TutorBots: {e}")
+        logger.warning(f"Failed to stop cron service: {e}")
+
+    # Stop partners
+    try:
+        from deeptutor.services.partners import get_partner_manager
+
+        await get_partner_manager().stop_all(preserve_auto_start=True)
+        logger.info("Partners stopped")
+    except Exception as e:
+        logger.warning(f"Failed to stop partners: {e}")
 
     # Stop EventBus
     try:
@@ -272,10 +287,13 @@ from deeptutor.api.routers import (
     chat,
     co_writer,
     dashboard,
-    guided_learning,
     knowledge,
+    mastery_path,
+    mcp_settings,
     memory,
     notebook,
+    partners,
+    personas,
     plugins_api,
     question,
     question_notebook,
@@ -284,7 +302,6 @@ from deeptutor.api.routers import (
     settings,
     skills,
     system,
-    tutorbot,
     unified_ws,
     vision_solver,
 )
@@ -298,9 +315,13 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 
 # All other routers require a valid session when AUTH_ENABLED=true.
 # require_auth is a no-op when AUTH_ENABLED=false, so this is safe for local use.
-from deeptutor.api.routers.auth import require_auth  # noqa: E402
+from deeptutor.api.routers.auth import require_admin, require_auth  # noqa: E402
 
 _auth = [Depends(require_auth)]
+# Partner data is anchored at the admin workspace (data/partners) and shared
+# process-wide, so management is admin-gated in multi-user deployments
+# (single-user local runs are implicitly admin — no behaviour change there).
+_admin = [Depends(require_admin)]
 
 app.include_router(
     multi_user_router,
@@ -320,9 +341,9 @@ app.include_router(
     dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"], dependencies=_auth
 )
 app.include_router(
-    guided_learning.router,
+    mastery_path.router,
     prefix="/api/v1/learning",
-    tags=["guided-learning"],
+    tags=["mastery-path"],
     dependencies=_auth,
 )
 app.include_router(
@@ -351,7 +372,16 @@ app.include_router(
 app.include_router(
     settings.router, prefix="/api/v1/settings", tags=["settings"], dependencies=_auth
 )
+app.include_router(
+    mcp_settings.router,
+    prefix="/api/v1/settings/mcp",
+    tags=["mcp-settings"],
+    dependencies=_auth,
+)
 app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"], dependencies=_auth)
+app.include_router(
+    personas.router, prefix="/api/v1/personas", tags=["personas"], dependencies=_auth
+)
 app.include_router(tools_router.router, prefix="/api/v1/tools", tags=["tools"], dependencies=_auth)
 app.include_router(system.router, prefix="/api/v1/system", tags=["system"], dependencies=_auth)
 app.include_router(
@@ -364,7 +394,7 @@ app.include_router(
     vision_solver.router, prefix="/api/v1", tags=["vision-solver"], dependencies=_auth
 )
 app.include_router(
-    tutorbot.router, prefix="/api/v1/tutorbot", tags=["tutorbot"], dependencies=_auth
+    partners.router, prefix="/api/v1/partners", tags=["partners"], dependencies=_admin
 )
 app.include_router(
     attachments.router,

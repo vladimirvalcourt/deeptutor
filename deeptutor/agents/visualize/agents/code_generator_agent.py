@@ -46,9 +46,7 @@ class CodeGeneratorAgent(BaseAgent):
             self.get_prompt("rules_general"),
             self.get_prompt(f"rules_{analysis.render_type}"),
         )
-        system_prompt = "\n\n".join(
-            part.strip() for part in system_parts if part and part.strip()
-        )
+        system_prompt = "\n\n".join(part.strip() for part in system_parts if part and part.strip())
         user_template = self.get_prompt("user_template")
         if not system_prompt or not user_template:
             raise ValueError("CodeGeneratorAgent prompts are not configured.")

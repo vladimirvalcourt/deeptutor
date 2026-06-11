@@ -1,9 +1,11 @@
-"""Guided Learning — Framework v1.8.2 structured mastery-based learning engine.
+"""Mastery Path — structured mastery-based learning engine.
 
 Modules:
     models      — Pydantic data models
     storage     — JSON persistence
     scheduler   — Spaced repetition
+    mastery     — Mastery scoring policy (swappable)
+    grading     — Deterministic answer grading
     service     — Business logic
     prompts     — LLM prompt templates
 """
@@ -17,7 +19,6 @@ from deeptutor.learning.models import (
     LearningModule,
     LearningProgress,
     LearningStage,
-    MasteryLevel,
     QuizAttempt,
     RepetitionState,
     RetryAttempt,
@@ -33,7 +34,6 @@ __all__ = [
     "LearningModule",
     "LearningProgress",
     "LearningStage",
-    "MasteryLevel",
     "QuizAttempt",
     "RepetitionState",
     "RetryAttempt",

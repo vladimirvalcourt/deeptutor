@@ -11,9 +11,8 @@ import threading
 from typing import Any
 from uuid import uuid4
 
-from deeptutor.runtime.home import get_runtime_home
-
 from .models import Role
+from .paths import PROJECT_ROOT, SYSTEM_ROOT, migrate_legacy_multi_user_tree
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +23,6 @@ logger = logging.getLogger(__name__)
 # (e.g. PocketBase), which is documented in the multi-user README.
 _USERS_WRITE_LOCK = threading.Lock()
 
-PROJECT_ROOT = get_runtime_home()
-MULTI_USER_ROOT = PROJECT_ROOT / "multi-user"
-SYSTEM_ROOT = MULTI_USER_ROOT / "_system"
 AUTH_DIR = SYSTEM_ROOT / "auth"
 USERS_FILE = AUTH_DIR / "users.json"
 SECRET_FILE = AUTH_DIR / "auth_secret"
@@ -128,6 +124,7 @@ def load_users(  # nosec B107 - empty defaults mean "no env fallback supplied".
     env_password_hash: str = "",
 ) -> dict[str, dict[str, Any]]:
     """Load canonical users, migrating legacy records and env fallback in memory."""
+    migrate_legacy_multi_user_tree()
     users: dict[str, dict[str, Any]] | None = None
     if USERS_FILE.exists():
         users = _read_json(USERS_FILE)
@@ -242,6 +239,7 @@ def set_role(username: str, role: Role) -> bool:
 
 
 def load_or_create_auth_secret() -> str:
+    migrate_legacy_multi_user_tree()
     _migrate_secret()
     try:
         if SECRET_FILE.exists():

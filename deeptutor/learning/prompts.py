@@ -1,120 +1,93 @@
-"""Guided Learning prompt templates — Framework v1.8.2."""
+"""Mastery Path LLM prompt templates.
 
-# ── Diagnostic Phase 1 ─────────────────────────────────────────────────
+The prompt text lives in ``deeptutor/learning/prompts/{en,zh}.yaml`` so the
+capability and API can follow the active UI language. The module-level constants
+remain as the Chinese defaults for older tests/imports.
+"""
 
-DIAGNOSTIC_PHASE1_SYSTEM = """你是一个教育诊断专家。请生成摸底测试题来评估学生当前水平。
-要求：
-1. 5-8道题，覆盖基础概念和核心知识点
-2. 题型多样（选择、填空、简答）
-3. 难度从易到难递进
-返回 JSON 格式：{"questions": ["Q1", "Q2", ...], "answers": ["A1", "A2", ...]}"""
+from __future__ import annotations
 
-DIAGNOSTIC_PHASE1_USER = "生成摸底测试题，覆盖基础概念"
+from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
-# ── Diagnostic Phase 2 ─────────────────────────────────────────────────
+import yaml
 
-DIAGNOSTIC_PHASE2_SYSTEM = """你是一个教育诊断专家。基于第一轮摸底结果，进行深度诊断。
-要求：
-1. 针对薄弱环节出3-5道深入题
-2. 探测理解深度和知识盲区
-返回 JSON 格式：{"questions": ["Q1", ...], "answers": ["A1", ...]}"""
+from deeptutor.services.config import parse_language
 
-DIAGNOSTIC_PHASE2_USER = "生成深度诊断题，探测薄弱环节"
+_PROMPT_DIR = Path(__file__).with_name("prompts")
 
-# ── Metacognitive Intro ────────────────────────────────────────────────
 
-METACOGNITIVE_SYSTEM = """你是一个学习方法专家。介绍三种高效学习方法：主动回忆、间隔重复、费曼技巧。
-要求：
-1. 每种方法用1-2句话解释核心原理
-2. 给出具体可操作的使用建议
-3. 语言通俗易懂，300字以内"""
+def _get_nested(data: dict[str, Any], path: str, default: str = "") -> str:
+    value: Any = data
+    for part in path.split("."):
+        if not isinstance(value, dict):
+            return default
+        value = value.get(part)
+    return value if isinstance(value, str) else default
 
-METACOGNITIVE_USER = "介绍学习方法"
 
-# ── Plan ───────────────────────────────────────────────────────────────
+@lru_cache(maxsize=8)
+def get_learning_prompts(language: str = "zh") -> dict[str, Any]:
+    """Load localized Mastery Path LLM prompts."""
+    lang = parse_language(language)
+    candidates = [lang, "zh" if lang != "zh" else "en"]
+    for candidate in candidates:
+        path = _PROMPT_DIR / f"{candidate}.yaml"
+        if path.exists():
+            return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {}
 
-PLAN_SYSTEM = """你是一个学习规划师。基于诊断结果制定个性化学习计划。
-要求：
-1. 按优先级排列模块学习顺序，薄弱项优先
-2. 每个模块设定明确的学习目标
-3. 给出预计学习时间"""
 
-PLAN_USER = "制定学习计划"
+def prompt_text(language: str, path: str, default: str = "") -> str:
+    return _get_nested(get_learning_prompts(language), path, default)
 
-# ── Pretest ────────────────────────────────────────────────────────────
 
-PRETEST_SYSTEM = """请出一道预习题（Guess阶段），激发学生好奇心。
-要求：题目与知识点紧密相关，引导学生先思考再学习。
-返回 JSON：{"question": "...", "hint": "..."}"""
+def notebook_generation_prompts(language: str, records_json: str) -> tuple[str, str]:
+    prompts = get_learning_prompts(language)
+    system_prompt = _get_nested(prompts, "notebook.system", NOTEBOOK_SYSTEM)
+    user_template = _get_nested(prompts, "notebook.user", NOTEBOOK_USER)
+    return system_prompt, user_template.format(records_json=records_json)
 
-PRETEST_USER = "为知识点出预习题：{knowledge_point}"
 
-# ── Explain ────────────────────────────────────────────────────────────
+def default_module_name(language: str, index: int) -> str:
+    template = prompt_text(language, "notebook.default_module_name", "模块 {index}")
+    return template.format(index=index)
 
-EXPLAIN_SYSTEM = """你是一个耐心专业的老师。请讲解以下知识点。
-要求：
-1. 用生活化比喻引入，降低理解门槛
-2. 给出核心概念的准确定义
-3. 提供1-2个具体例子
-4. 指出常见误解
-5. 300-500字，语言通俗"""
 
-EXPLAIN_USER = "讲解知识点：{knowledge_point}"
+DIAGNOSTIC_SYSTEM = prompt_text("zh", "diagnostic.system")
+DIAGNOSTIC_USER = prompt_text("zh", "diagnostic.user")
+EXPLAIN_SYSTEM = prompt_text("zh", "explain.system")
+EXPLAIN_USER = prompt_text("zh", "explain.user")
+FEYNMAN_SYSTEM = prompt_text("zh", "feynman.system")
+FEYNMAN_USER = prompt_text("zh", "feynman.user")
+PRACTICE_SYSTEM = prompt_text("zh", "practice.system")
+PRACTICE_USER = prompt_text("zh", "practice.user")
+ERROR_DIAGNOSIS_SYSTEM = prompt_text("zh", "error_diagnosis.system")
+ERROR_DIAGNOSIS_USER = prompt_text("zh", "error_diagnosis.user")
+REVIEW_SYSTEM = prompt_text("zh", "review.system")
+REVIEW_USER = prompt_text("zh", "review.user")
+NOTEBOOK_SYSTEM = prompt_text("zh", "notebook.system")
+NOTEBOOK_USER = prompt_text("zh", "notebook.user")
 
-# ── Feynman Check ──────────────────────────────────────────────────────
 
-FEYNMAN_SYSTEM = """判断学生是否能用费曼技巧解释清楚概念。
-评估标准：
-1. 能否用简单语言解释
-2. 是否有关键遗漏
-3. 是否存在理解偏差
-返回 JSON：{"passed": true/false, "feedback": "...", "gap": "..."}"""
-
-FEYNMAN_USER = "检验对概念的费曼解释：{knowledge_point}"
-
-# ── Practice Quiz ──────────────────────────────────────────────────────
-
-PRACTICE_QUIZ_SYSTEM = """你是一个出题专家。请为以下知识点生成综合练习测验。
-要求：
-1. 生成 5-10 道题，覆盖所有列出的知识点
-2. 题型多样（选择、填空、简答）
-3. 难度适中，侧重理解和应用
-4. 每道题附带正确答案和简要解析
-5. 每道题必须指定 knowledge_point_id，值为该题对应的知识点名称
-返回 JSON：{"questions": [{"question": "...", "answer": "...", "explanation": "...", "knowledge_point_id": "..."}]}"""
-
-PRACTICE_QUIZ_USER = "为以下知识点生成综合练习测验：{knowledge_points}"
-
-# ── Practice ───────────────────────────────────────────────────────────
-
-PRACTICE_SYSTEM = """生成3-5道练习题，难度递进（识记→理解→应用→分析）。
-要求：覆盖不同认知层次，支持交叉练习。每道题必须指定 knowledge_point_id。
-返回 JSON：{"exercises": [{"question": "...", "answer": "...", "bloom_level": "...", "knowledge_point_id": "..."}]}"""
-
-PRACTICE_USER = "为模块生成练习题：{module_name}"
-
-# ── Error Diagnosis ────────────────────────────────────────────────────
-
-ERROR_DIAGNOSIS_SYSTEM = """分析学生做错的题目属于什么错误类型。
-错误类型：structural / deviation / application / metacognitive
-返回 JSON：{"diagnoses": [{"question_id": "...", "error_type": "...", "ai_confirmation": "...", "remediation": "..."}]}
-如果没有错题记录，返回空 diagnoses 列表。"""
-
-ERROR_DIAGNOSIS_USER = "分析以下错题并给出诊断"
-
-# ── Module Test ────────────────────────────────────────────────────────
-
-MODULE_TEST_SYSTEM = """出一套10题模块测验，覆盖所有知识点，通过线70%。
-要求：题型多样，覆盖全部知识点，难度适中。
-返回 JSON 格式。"""
-
-MODULE_TEST_USER = "为模块生成测验：{module_name}"
-
-# ── Review ─────────────────────────────────────────────────────────────
-
-REVIEW_SYSTEM = """生成间隔复习内容：
-1. 核心概念回顾（简明扼要）
-2. 易错点提醒
-3. 综合练习1-2道"""
-
-REVIEW_USER = "生成复习内容"
+__all__ = [
+    "DIAGNOSTIC_SYSTEM",
+    "DIAGNOSTIC_USER",
+    "ERROR_DIAGNOSIS_SYSTEM",
+    "ERROR_DIAGNOSIS_USER",
+    "EXPLAIN_SYSTEM",
+    "EXPLAIN_USER",
+    "FEYNMAN_SYSTEM",
+    "FEYNMAN_USER",
+    "NOTEBOOK_SYSTEM",
+    "NOTEBOOK_USER",
+    "PRACTICE_SYSTEM",
+    "PRACTICE_USER",
+    "REVIEW_SYSTEM",
+    "REVIEW_USER",
+    "default_module_name",
+    "get_learning_prompts",
+    "notebook_generation_prompts",
+    "prompt_text",
+]

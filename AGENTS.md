@@ -118,8 +118,8 @@ Requirements files mirror the same dependency groups for Docker/CI installs.
 pip install deeptutor      — Full app (CLI + Web/API + packaged Web assets)
 pip install deeptutor-cli  — CLI-only (LLM + RAG + providers + document parsing)
 pip install -e .           — Source install for development
-.[tutorbot]       — Full app + TutorBot agent engine + channel SDKs
-.[matrix]         — Matrix channel for TutorBot (matrix-nio[e2e]; needs libolm)
+.[partners]       — Full app + partner channel SDKs and MCP client
+.[matrix]         — Matrix channel for Partners (matrix-nio[e2e]; needs libolm)
 .[math-animator]  — Manim addon (powers `visualize` Manim renders + `deeptutor animate`)
 .[dev]            — Full app + test/lint tools
 .[all]            — Everything above

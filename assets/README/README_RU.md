@@ -271,7 +271,7 @@ deeptutor start
 
 ```bash
 pip install -e ".[dev]"             # инструменты тестов/lint
-pip install -e ".[tutorbot]"        # движок TutorBot + SDK каналов
+pip install -e ".[partners]"        # SDK каналов Partners + клиент MCP
 pip install -e ".[matrix]"          # канал Matrix без E2EE/libolm
 pip install -e ".[matrix-e2e]"      # Matrix E2EE; требует libolm
 pip install -e ".[math-animator]"   # дополнение Manim; требует LaTeX/ffmpeg/системные библиотеки

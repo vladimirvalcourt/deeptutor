@@ -6,7 +6,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import "katex/dist/katex.min.css";
-import { processMarkdownContent } from "@/lib/latex";
+import {
+  convertFlowFenceToMermaid,
+  convertSequenceFenceToMermaid,
+  processMarkdownContent,
+} from "@/lib/latex";
 import {
   citationAnchorIdFor,
   escapeUnknownHtmlTagsForDisplay,
@@ -470,6 +474,26 @@ export default function RichMarkdownRenderer({
             <LazyMermaid chart={raw} className={gap} />
           </div>
         );
+      }
+
+      // editor.md style fences. With `trackSourceLines` the preprocess
+      // pipeline is bypassed (it would shift line numbers), so the raw
+      // fence reaches us here and we convert at render time instead.
+      if (
+        (lang === "flow" || lang === "seq" || lang === "sequence") &&
+        enableMermaid
+      ) {
+        const converted =
+          lang === "flow"
+            ? convertFlowFenceToMermaid(raw)
+            : convertSequenceFenceToMermaid(raw);
+        if (converted) {
+          return (
+            <div {...lineProps}>
+              <LazyMermaid chart={converted} className={gap} />
+            </div>
+          );
+        }
       }
 
       if (lang === "ggbscript" && enableCode) {

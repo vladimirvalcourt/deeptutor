@@ -60,7 +60,7 @@ class PathService:
     """Runtime path manager rooted at a workspace root.
 
     The default root is the historical ``data/`` directory.  The optional
-    multi-user layer instantiates this class with ``multi-user/<uid>/`` so the
+    multi-user layer instantiates this class with ``data/users/<uid>/`` so the
     public API can stay the same while disk writes become scoped per user.
     """
 
@@ -159,6 +159,9 @@ class PathService:
             return True
 
         if len(parts) >= 5 and parts[:2] == ("workspace", "chat") and "code_runs" in parts[3:]:
+            return True
+
+        if len(parts) >= 5 and parts[:3] == ("workspace", "chat", "chat") and parts[4] == "exec":
             return True
 
         if len(parts) >= 4 and parts[:3] == ("workspace", "chat", "_detached_code_execution"):

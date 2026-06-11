@@ -347,37 +347,36 @@ class WecomChannel(BaseChannel):
             return None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through WeCom."""
+        """Send a message through WeCom.
+
+        Raises on delivery failure so the channel manager's retry applies.
+        """
         if not self._client:
             logger.warning("WeCom client not initialized")
             return
 
-        try:
-            content = msg.content.strip()
-            if not content:
-                return
-            if self._generate_req_id is None:
-                logger.warning("WeCom request id generator not initialized")
-                return
+        content = msg.content.strip()
+        if not content:
+            return
+        if self._generate_req_id is None:
+            logger.warning("WeCom request id generator not initialized")
+            return
 
-            # Get the stored frame for this chat
-            frame = self._chat_frames.get(msg.chat_id)
-            if not frame:
-                logger.warning("No frame found for chat {}, cannot reply", msg.chat_id)
-                return
+        # Get the stored frame for this chat
+        frame = self._chat_frames.get(msg.chat_id)
+        if not frame:
+            logger.warning("No frame found for chat {}, cannot reply", msg.chat_id)
+            return
 
-            # Use streaming reply for better UX
-            stream_id = self._generate_req_id("stream")
+        # Use streaming reply for better UX
+        stream_id = self._generate_req_id("stream")
 
-            # Send as streaming message with finish=True
-            await self._client.reply_stream(
-                frame,
-                stream_id,
-                content,
-                finish=True,
-            )
+        # Send as streaming message with finish=True
+        await self._client.reply_stream(
+            frame,
+            stream_id,
+            content,
+            finish=True,
+        )
 
-            logger.debug("WeCom message sent to {}", msg.chat_id)
-
-        except Exception as e:
-            logger.error("Error sending WeCom message: {}", e)
+        logger.debug("WeCom message sent to {}", msg.chat_id)
