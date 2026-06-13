@@ -24,11 +24,8 @@ Supported client message ``type`` values:
 - ``check_active_turn`` — report whether the session has a live running turn;
   replies with ``active_turn_info`` (``turn_id``/``status``), marking stale
   persisted "running" rows as cancelled when no live execution exists.
-- ``user_input`` — deliver a Mastery Path answer to the turn's StreamBus
-  (resolves a pending ``wait_for_input``).
-- ``change_module`` — switch the active Mastery Path module; replies with
-  ``module_changed`` (``module_id``/``success``) before cancelling any active
-  turn so the frontend processes the switch before the cancellation.
+- ``user_input`` — deliver a learner answer to the turn's StreamBus
+  (resolves a pending ``wait_for_input``, e.g. an ``ask_user`` pause).
 """
 
 from __future__ import annotations
@@ -310,44 +307,6 @@ async def unified_websocket(ws: WebSocket) -> None:
                     )
                     continue
                 bus.submit_input(str(msg.get("content") or ""))
-                continue
-
-            if msg_type == "change_module":
-                session_id = str(msg.get("session_id") or "").strip()
-                module_id = str(msg.get("module_id") or "").strip()
-                if not session_id or not module_id:
-                    await safe_send(
-                        {
-                            "type": "error",
-                            "content": "Missing session_id or module_id for change_module.",
-                        }
-                    )
-                    continue
-                from deeptutor.learning.service import LearningService
-                from deeptutor.learning.storage import LearningStore
-                from deeptutor.services.session import get_turn_runtime_manager
-
-                # Pedagogy (module lookup + reset to the EXPLAIN stage) lives in
-                # the service; the router only owns the transport ordering below.
-                service = LearningService(LearningStore())
-                progress = service.get_or_create(session_id)
-                found = service.switch_module(progress, module_id)
-
-                # Send module_changed BEFORE cancelling so the frontend
-                # processes the module switch before any cancellation error.
-                await safe_send(
-                    {"type": "module_changed", "module_id": module_id, "success": found}
-                )
-
-                # Cancel any active turn to prevent its finally block from
-                # overwriting the module change with stale progress.
-                runtime = get_turn_runtime_manager()
-                active_turn = await runtime.store.get_active_turn(session_id)
-                if active_turn:
-                    await runtime.cancel_turn(active_turn["id"])
-
-                if found:
-                    service.save(progress)
                 continue
 
             await safe_send({"type": "error", "content": f"Unknown type: {msg_type}"})

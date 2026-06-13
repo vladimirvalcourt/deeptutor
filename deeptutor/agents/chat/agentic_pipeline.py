@@ -47,6 +47,7 @@ from deeptutor.services.llm import (
 )
 from deeptutor.services.llm.context_window import resolve_effective_context_window
 from deeptutor.services.prompt import get_prompt_manager
+from deeptutor.tools.mastery_tool import MASTERY_TOOL_NAMES
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,42 @@ KB_SEED_CHARS_PER_KB = 4000
 DEFAULT_MAX_ROUNDS = 8
 CONTEXT_WINDOW_GUARD_RATIO = 0.9
 _DispatchOutcome = DispatchOutcome
+
+# The mastery-tutor playbook, injected as a system block only when the turn is
+# in mastery mode (set by MasteryPathCapability). The intelligence — what to
+# teach, how to question — lives here at the loop's exit; the hard gate and the
+# spaced-repetition arithmetic live in the engine the mastery tools call.
+_MASTERY_SYSTEM_EN = """\
+[Mastery Tutor mode]
+You are a one-on-one mastery tutor. The learner works through a map of objectives, each behind a HARD mastery gate: an objective counts as "mastered" only once its gate clears, and you must not move on until it does.
+
+FIRST on every turn, call `mastery_status`. It returns the next objective to work on, any question awaiting an answer, due reviews, and the full map. Trust it to choose the objective — never guess what comes next.
+
+Then act on the objective:
+- No objectives yet? Design a path from the learner's materials (use `rag` / `read_source` when materials are attached) and call `mastery_build`. Tag each knowledge point: memory (facts), procedure (step-by-step skills), concept (ideas to understand), design (open-ended judgement).
+- `probe` (untouched): briefly check whether the learner already knows it before teaching — let them test out, don't lecture what they have already mastered.
+- memory / procedure objectives: pose a concrete question with `mastery_quiz`, present it (use `ask_user` for a tight ask-and-answer loop), then score the learner's answer with `mastery_grade`. Keep working the same objective until `mastery_grade` reports `mastered: true`.
+- concept / design objectives: ask the learner to explain the idea in their own words, judge it, and record the result with `mastery_assess` (`passed: true` only when the explanation truly shows understanding).
+- `review`: a spaced-repetition item is due — quiz it again to refresh it.
+- `complete`: congratulate the learner and summarise what they have mastered.
+
+Teach from the learner's own materials when available. Keep each turn focused on one objective. Be warm and encouraging, but hold the bar — clearing the gate is the point, not moving fast."""
+
+_MASTERY_SYSTEM_ZH = """\
+[精通导师模式]
+你是一对一的掌握式导师。学习者沿着一张知识点地图前进，每个知识点都有一道硬性掌握门槛：只有门槛达成，该知识点才算"已掌握"，在此之前你绝不能推进到下一个。
+
+每一轮都要先调用 `mastery_status`。它会返回当前要攻克的知识点、是否有待批改的作答、到期复习项，以及整张地图。请信任它来决定学什么——绝不要自己猜下一个知识点。
+
+然后针对该知识点行动：
+- 还没有任何知识点？根据学习者的材料设计一条路径（材料已挂载时用 `rag` / `read_source`），调用 `mastery_build`。给每个知识点标类型：memory（记忆/事实）、procedure（程序/步骤技能）、concept（概念/需理解）、design（设计/开放判断）。
+- `probe`（未触碰）：先简短探查学习者是否已经会了再教——允许其"测试通过"直接跳过，不要重复讲他已掌握的内容。
+- memory / procedure 类：用 `mastery_quiz` 出一道具体题目并呈现给学习者（紧凑问答用 `ask_user`），再用 `mastery_grade` 批改其作答。在 `mastery_grade` 返回 `mastered: true` 之前，持续打磨同一个知识点。
+- concept / design 类：让学习者用自己的话解释该概念，你来判断，并用 `mastery_assess` 记录结果（只有解释确实体现理解时才 `passed: true`）。
+- `review`：有到期的间隔复习项——再考一次以巩固。
+- `complete`：祝贺学习者并总结其已掌握的内容。
+
+有材料时优先用学习者自己的材料来教。每一轮聚焦一个知识点。态度温暖鼓励，但守住门槛——目标是达成掌握，而非求快。"""
 
 
 def _read_int(cfg: Any, *, key: str, default: int) -> int:
@@ -270,6 +307,7 @@ class AgenticChatPipeline:
             ),
             notebook_manifest=self._build_notebook_manifest(),
             workspace_note=self._workspace_system_note(context),
+            mastery_note=self._mastery_system_note(context),
             include_tool_manifest=include_tool_manifest,
         )
 
@@ -439,6 +477,7 @@ class AgenticChatPipeline:
                 has_deferred_tools=getattr(self, "_deferred_loader", None) is not None,
                 has_exec=getattr(self, "_exec_enabled", False),
                 has_code=getattr(self, "_exec_enabled", False),
+                has_mastery=self._mastery_active(context),
             ),
         )
 
@@ -678,6 +717,10 @@ class AgenticChatPipeline:
             get_path_service().get_task_workspace("chat", workspace_key) if workspace_key else None
         )
         exec_dir = task_dir / "exec" if task_dir is not None else None
+        if tool_name in MASTERY_TOOL_NAMES:
+            # The active path id is server-owned; the model never picks which
+            # learner's progress a mastery tool reads or writes.
+            kwargs["_mastery_path_id"] = self._mastery_path_id(context)
         if tool_name == "rag":
             kwargs.setdefault("mode", "hybrid")
         elif tool_name == "load_tools":
@@ -1025,6 +1068,23 @@ class AgenticChatPipeline:
         )
         cleaned = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in raw)
         return cleaned.strip("_") or "direct"
+
+    @staticmethod
+    def _mastery_active(context: UnifiedContext) -> bool:
+        """Whether this turn runs in mastery-tutor mode (set by the capability)."""
+        return bool(context.metadata.get("mastery_mode"))
+
+    @staticmethod
+    def _mastery_path_id(context: UnifiedContext) -> str:
+        return str(context.metadata.get("mastery_path_id") or "").strip()
+
+    def _mastery_system_note(self, context: UnifiedContext) -> str:
+        if not self._mastery_active(context):
+            return ""
+        override = self._t("mastery.system")
+        if override:
+            return override
+        return _MASTERY_SYSTEM_ZH if self.language == "zh" else _MASTERY_SYSTEM_EN
 
     def _kb_system_note(self, context: UnifiedContext) -> str:
         kbs = self._selected_kbs(context)

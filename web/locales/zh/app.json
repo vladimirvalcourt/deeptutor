@@ -2356,5 +2356,7 @@
   "Please use the attached file(s).": "请结合附件文件回答。",
   "This channel is not available on the server.": "该频道在此服务器上不可用。",
   "Partner": "伙伴",
-  "Edited — your version becomes this partner's soul. The original template is untouched.": "已编辑——你的版本将成为这个伙伴的 soul，原模板保持不变。"
+  "Edited — your version becomes this partner's soul. The original template is untouched.": "已编辑——你的版本将成为这个伙伴的 soul，原模板保持不变。",
+  "Mastery-based tutoring with a hard gate": "掌握式辅导：硬门槛 + 间隔复习",
+  "Mastery Path tooltip": "掌握式学习：硬门槛与间隔复习"
 }

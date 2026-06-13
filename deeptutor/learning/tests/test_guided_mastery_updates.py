@@ -1,56 +1,27 @@
-"""Tests for Mastery Path mastery updates from in-turn answers.
+"""Tests for Mastery Path mastery updates from graded answers.
 
 The unified post-answer pipeline is ``LearningService.grade_and_record``: it
 grades one answer, recomputes mastery (recency-weighted with a low-confidence
 cap), advances the spaced-repetition state, rebuilds the review queue, and
-persists. The capability's ``_run_quiz`` folds every interactive answer through
-exactly this pipeline, so mastery is updated in-turn with no server-side
-question store. These tests assert that contract end to end.
+persists. The mastery tools (``mastery_grade``) fold every answer through
+exactly this pipeline, so mastery is updated deterministically with the
+expected answer held server-side. These tests assert that contract end to end.
 """
-
-from contextlib import asynccontextmanager
-import json
 
 import pytest
 
-from deeptutor.capabilities.mastery_path import MasteryPathCapability
 from deeptutor.learning.mastery import compute_mastery
 from deeptutor.learning.models import (
     KnowledgePoint,
     KnowledgeType,
     LearningModule,
     LearningProgress,
-    LearningStage,
 )
 from deeptutor.learning.scheduler import SpacedRepetitionScheduler
 from deeptutor.learning.service import LearningService
 from deeptutor.learning.storage import LearningStore
 
 # ── Helpers ──────────────────────────────────────────────────────────────
-
-
-class FakeStream:
-    """Minimal StreamBus mock for capability testing."""
-
-    def __init__(self, user_inputs: list[str] | None = None):
-        self._inputs = list(user_inputs or [])
-        self._input_idx = 0
-        self.events: list[str] = []
-
-    @asynccontextmanager
-    async def stage(self, name, source="", metadata=None):
-        self.events.append(f"stage:{name}")
-        yield
-
-    async def content(self, text, source="", stage="", metadata=None):
-        self.events.append(text)
-
-    async def wait_for_input(self, prompt, source="", stage="", timeout=None):
-        if self._input_idx < len(self._inputs):
-            val = self._inputs[self._input_idx]
-            self._input_idx += 1
-            return val
-        return ""
 
 
 def _make_progress(book_id="book1") -> LearningProgress:
@@ -98,7 +69,7 @@ def test_compute_mastery_partial_correctness_scales():
     assert one_of_five < two_of_five < three_of_five
 
 
-# ── grade_and_record: the unified in-turn pipeline ─────────────────────────
+# ── grade_and_record: the unified post-answer pipeline ─────────────────────
 
 
 def test_grade_and_record_correct_updates_capped_mastery_and_persists(tmp_path):
@@ -217,7 +188,7 @@ def test_grade_and_record_blank_wrong_is_metacognitive(tmp_path):
     assert progress.quiz_attempts[0].error_type == ErrorType.METACOGNITIVE
 
 
-# ── Error-record graduation across attempts (the in-turn lifecycle) ────────
+# ── Error-record graduation across attempts ────────────────────────────────
 
 
 def test_error_record_graduates_on_later_correct_answer(tmp_path):
@@ -257,103 +228,43 @@ def test_error_record_graduates_on_later_correct_answer(tmp_path):
     assert progress.mastery_levels["kp1"] > 0.5
 
 
-# ── Capability _run_quiz: mastery updated in-turn, no question store ────────
+# ── Pending-question lifecycle + qualitative recording (loop-driven path) ──
 
 
-@pytest.mark.asyncio
-async def test_run_quiz_updates_mastery_in_turn(tmp_path):
-    """``_run_quiz`` streams each (answer-stripped) question, reads the answer
-    off the stream, and folds it through grade_and_record so mastery is updated
-    in-turn. Inline answer keys are extracted; no server-side store is written."""
+def test_pending_question_set_and_clear_round_trip(tmp_path):
+    from deeptutor.learning.models import PendingQuestion
+
     store = LearningStore(root=tmp_path)
-    cap = MasteryPathCapability(service=LearningService(store))
+    service = LearningService(store)
     progress = _make_progress()
 
-    data = {
-        "questions": [
-            {"question": "Capital of France?", "answer": "paris", "id": "q1"},
-        ]
-    }
-    stream = FakeStream(user_inputs=["paris"])
+    service.set_pending_question(
+        progress,
+        PendingQuestion(
+            question_id="q1",
+            knowledge_point_id="kp1",
+            module_id="m1",
+            prompt="Capital of France?",
+            expected_answer="paris",
+        ),
+    )
+    assert store.load("book1").pending_question.expected_answer == "paris"
 
-    correct, total = await cap._run_quiz(progress, stream, data, prefix="diag", attribute_kps=False)
-
-    assert (correct, total) == (1, 1)
-    assert len(progress.quiz_attempts) == 1
-    assert progress.quiz_attempts[0].is_correct is True
-
-    # The streamed question must NOT leak the answer.
-    question_events = [e for e in stream.events if e.startswith("{")]
-    assert question_events, "expected a streamed question payload"
-    payload = json.loads(question_events[0])
-    assert "answer" not in payload["question"]
-    assert payload["question_id"] == "q1"
+    service.clear_pending_question(progress)
+    assert progress.pending_question is None
+    assert store.load("book1").pending_question is None
 
 
-@pytest.mark.asyncio
-async def test_run_quiz_wrong_answer_records_no_mastery_gain(tmp_path):
-    """A wrong in-turn answer is graded fail-closed and leaves mastery at 0."""
+def test_record_qualitative_pass_and_fail_drive_display_mastery(tmp_path):
     store = LearningStore(root=tmp_path)
-    cap = MasteryPathCapability(service=LearningService(store))
+    service = LearningService(store)
     progress = _make_progress()
 
-    data = {"questions": [{"question": "Capital of France?", "answer": "paris", "id": "q1"}]}
-    stream = FakeStream(user_inputs=["london"])
+    service.record_qualitative(progress, "kp1", passed=True, evidence="clear explanation")
+    assert progress.qualitative_mastery["kp1"] is True
+    assert progress.mastery_levels["kp1"] == 1.0
+    assert progress.feynman_explanations["kp1"] == "clear explanation"
 
-    correct, total = await cap._run_quiz(progress, stream, data, prefix="diag", attribute_kps=False)
-
-    assert (correct, total) == (0, 1)
-    assert progress.quiz_attempts[0].is_correct is False
-    assert progress.mastery_levels.get("kp1", 0.0) == 0.0
-
-
-# ── _attribute_kps: round-robin fallback (qids derived internally) ─────────
-
-
-def _kp(kp_id: str, name: str) -> KnowledgePoint:
-    return KnowledgePoint(id=kp_id, name=name, type=KnowledgeType.CONCEPT, module_id="m1")
-
-
-def test_attribute_kps_accepts_ids_and_names():
-    kps = [_kp("kp1", "Limits"), _kp("kp2", "Derivatives")]
-    data = {
-        "questions": [
-            {"knowledge_point_id": "kp2"},
-            {"knowledge_point": "Limits"},
-        ]
-    }
-
-    result = MasteryPathCapability._attribute_kps(data, kps, "quiz")
-
-    assert result == {"quiz_0": "kp2", "quiz_1": "kp1"}
-
-
-def test_attribute_kps_round_robins_missing_attribution():
-    kps = [_kp("kp1", "Limits"), _kp("kp2", "Derivatives")]
-    data = {"questions": [{}, {}, {}]}
-
-    result = MasteryPathCapability._attribute_kps(data, kps, "quiz")
-
-    assert result == {"quiz_0": "kp1", "quiz_1": "kp2", "quiz_2": "kp1"}
-
-
-def test_attribute_kps_prefers_explicit_question_id():
-    kps = [_kp("kp1", "Limits")]
-    data = {"questions": [{"id": "custom", "knowledge_point_id": "kp1"}]}
-
-    result = MasteryPathCapability._attribute_kps(data, kps, "quiz")
-
-    assert result == {"custom": "kp1"}
-
-
-# ── _extract_answers: inline keys vs parallel array ────────────────────────
-
-
-def test_extract_answers_inline_keys():
-    data = {"questions": [{"id": "q1", "answer": "a1"}, {"id": "q2", "solution": "a2"}]}
-    assert MasteryPathCapability._extract_answers(data, "diag") == {"q1": "a1", "q2": "a2"}
-
-
-def test_extract_answers_parallel_array():
-    data = {"questions": [{"id": "q1"}, {"id": "q2"}], "answers": ["a1", "a2"]}
-    assert MasteryPathCapability._extract_answers(data, "diag") == {"q1": "a1", "q2": "a2"}
+    service.record_qualitative(progress, "kp1", passed=False)
+    assert progress.qualitative_mastery["kp1"] is False
+    assert progress.mastery_levels["kp1"] <= 0.4

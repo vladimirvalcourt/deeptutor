@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from deeptutor.tools.builtin import BUILTIN_TOOL_NAMES, USER_TOGGLEABLE_TOOL_NAMES
+from deeptutor.tools.mastery_tool import MASTERY_TOOL_NAMES
 
 # Tools whose mounting is owned by the pipeline (auto-on under specific
 # context conditions), not by the user's composer toggles. Adding a tool
@@ -47,7 +48,7 @@ AUTO_MOUNTED_TOOLS: frozenset[str] = frozenset(
         "github",
         "cron",
     }
-)
+).union(MASTERY_TOOL_NAMES)
 
 
 def default_optional_tools(excluded: Iterable[str] = ()) -> list[str]:
@@ -84,6 +85,7 @@ class ToolMountFlags:
     has_deferred_tools: bool = False
     has_exec: bool = False
     has_code: bool = False
+    has_mastery: bool = False
 
 
 def compose_enabled_tools(
@@ -133,6 +135,8 @@ def compose_enabled_tools(
         composed.append("exec")
     if mount_flags.has_code:
         composed.append("code_execution")
+    if mount_flags.has_mastery:
+        composed.extend(MASTERY_TOOL_NAMES)
     composed.append("write_memory")
     composed.append("web_fetch")
     composed.append("github")

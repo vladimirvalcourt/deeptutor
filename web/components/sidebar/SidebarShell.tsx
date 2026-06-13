@@ -11,6 +11,7 @@ import {
   Brain,
   ChevronDown,
   Github,
+  GraduationCap,
   HeartHandshake,
   LayoutGrid,
   Library,
@@ -60,9 +61,12 @@ const PRIMARY_NAV: NavEntry[] = [
     icon: BookOpen,
     tooltipKey: "Knowledge tooltip",
   },
-  // Mastery Path (/learning) is hidden from the product nav for now — the
-  // route, its components and the backend stay in place so the feature can
-  // be reworked and re-surfaced later. Re-add this entry to bring it back.
+  {
+    href: "/learning",
+    label: "Mastery Path",
+    icon: GraduationCap,
+    tooltipKey: "Mastery Path tooltip",
+  },
   {
     href: "/space",
     label: "Space",

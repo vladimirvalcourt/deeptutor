@@ -12,6 +12,7 @@ from deeptutor.learning.models import (
     LearningModule,
     LearningProgress,
     LearningStage,
+    PendingQuestion,
     QuizAttempt,
     RetryAttempt,
 )
@@ -207,6 +208,41 @@ class LearningService:
                 progress.review_queue = scheduler.build_review_queue(progress)
         self.save(progress)
         return is_correct
+
+    # ── Loop-driven tutoring helpers ─────────────────────────────────────
+
+    def set_pending_question(self, progress: LearningProgress, pending: PendingQuestion) -> None:
+        """Store the question the tutor just posed so its expected answer can
+        be graded deterministically on a later turn (never via the model)."""
+        progress.pending_question = pending
+        progress.updated_at = time.time()
+        self.save(progress)
+
+    def clear_pending_question(self, progress: LearningProgress) -> None:
+        progress.pending_question = None
+        progress.updated_at = time.time()
+        self.save(progress)
+
+    def record_qualitative(
+        self,
+        progress: LearningProgress,
+        kp_id: str,
+        *,
+        passed: bool,
+        evidence: str = "",
+    ) -> None:
+        """Record the qualitative (CONCEPT / DESIGN) gate outcome.
+
+        The boolean is the gate of record; ``mastery_levels`` is nudged only so
+        the map's colour matches the gate (full on pass, capped on fail).
+        """
+        progress.qualitative_mastery[kp_id] = bool(passed)
+        current = progress.mastery_levels.get(kp_id, 0.0)
+        progress.mastery_levels[kp_id] = max(current, 1.0) if passed else min(current, 0.4)
+        if evidence:
+            progress.feynman_explanations[kp_id] = evidence
+        progress.updated_at = time.time()
+        self.save(progress)
 
     def list_progress(self) -> dict:
         """Return summary of all book progress with per-book error info."""

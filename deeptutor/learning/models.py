@@ -161,6 +161,27 @@ class ReviewTask(BaseModel):
     state: RepetitionState
 
 
+class PendingQuestion(BaseModel):
+    """A question posed to the learner and awaiting their answer.
+
+    Persisted so grading is deterministic across turns: the expected answer
+    lives here server-side and never round-trips through the model. The tutor
+    poses a question with ``mastery_quiz`` (storing this), the learner answers
+    on a later turn, and ``mastery_grade`` scores the stored answer.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    question_id: str
+    knowledge_point_id: str
+    module_id: str = ""
+    prompt: str = ""
+    question_type: str = "short"
+    expected_answer: str = ""
+    options: list[str] = Field(default_factory=list)
+    created_at: float = Field(default_factory=time.time)
+
+
 class LearningProgress(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -171,11 +192,18 @@ class LearningProgress(BaseModel):
     current_stage: LearningStage = LearningStage.DIAGNOSTIC
     current_kp_index: int = 0
     mastery_levels: dict[str, float] = Field(default_factory=dict)
+    # Qualitative gate for CONCEPT / DESIGN knowledge points: True once the
+    # tutor judges the learner's explanation sufficient (``mastery_assess``).
+    # The quantitative ``mastery_levels`` gate covers MEMORY / PROCEDURE.
+    qualitative_mastery: dict[str, bool] = Field(default_factory=dict)
     knowledge_types: dict[str, KnowledgeType] = Field(default_factory=dict)
     quiz_attempts: list[QuizAttempt] = Field(default_factory=list)
     error_records: list[ErrorRecord] = Field(default_factory=list)
     repetition_states: dict[str, RepetitionState] = Field(default_factory=dict)
     review_queue: list[ReviewTask] = Field(default_factory=list)
+    # A single outstanding question; grading reads its expected answer so the
+    # model never has to recall it across turns.
+    pending_question: PendingQuestion | None = None
     feynman_retries: dict[str, int] = Field(default_factory=dict)
     feynman_explanations: dict[str, str] = Field(default_factory=dict)
     stage_failure_counts: dict[str, int] = Field(default_factory=dict)
@@ -197,5 +225,6 @@ __all__ = [
     "ErrorRecord",
     "RepetitionState",
     "ReviewTask",
+    "PendingQuestion",
     "LearningProgress",
 ]

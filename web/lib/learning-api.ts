@@ -55,6 +55,59 @@ export async function initModules(bookId: string, modules: ModuleInit[]) {
   return res.json();
 }
 
+// ── Mastery map (the dashboard view) ──────────────────────────────────────
+// Mirrors deeptutor/learning/policy.py map_summary + next_objective.
+
+export type ObjectiveStatus = "new" | "learning" | "mastered";
+
+export interface MapKnowledgePoint {
+  id: string;
+  name: string;
+  type: string;
+  status: ObjectiveStatus;
+  mastery: number;
+}
+
+export interface MapModule {
+  id: string;
+  name: string;
+  order: number;
+  mastered: number;
+  total: number;
+  knowledge_points: MapKnowledgePoint[];
+}
+
+export interface MasteryMap {
+  counts: { mastered: number; learning: number; new: number; total: number };
+  due_reviews: number;
+  complete: boolean;
+  modules: MapModule[];
+}
+
+export interface NextStep {
+  action: string;
+  knowledge_point_name: string;
+  knowledge_point_type: string;
+  status: string;
+  mastery: number;
+  threshold: number;
+  reason: string;
+}
+
+export interface MasteryMapResult {
+  book_id: string;
+  next: NextStep;
+  map: MasteryMap;
+}
+
+export async function fetchMasteryMap(pathId: string): Promise<MasteryMapResult> {
+  const res = await apiFetch(
+    apiUrl(`/api/v1/learning/progress/${encodeURIComponent(pathId)}/map`),
+  );
+  if (!res.ok) throw new Error(`Failed to fetch mastery map: ${res.status}`);
+  return res.json() as Promise<MasteryMapResult>;
+}
+
 export interface ProgressSummary {
   book_id: string;
   name: string;

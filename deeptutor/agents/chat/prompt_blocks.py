@@ -38,6 +38,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
+        mastery_note: str = "",
         include_tool_manifest: bool = True,
     ) -> str:
         blocks = self.blocks(
@@ -47,6 +48,7 @@ class ChatPromptAssembler:
             deferred_tools_manifest=deferred_tools_manifest,
             notebook_manifest=notebook_manifest,
             workspace_note=workspace_note,
+            mastery_note=mastery_note,
             include_tool_manifest=include_tool_manifest,
         )
         joined = "\n\n---\n\n".join(
@@ -63,6 +65,7 @@ class ChatPromptAssembler:
         deferred_tools_manifest: str = "",
         notebook_manifest: str = "",
         workspace_note: str = "",
+        mastery_note: str = "",
         include_tool_manifest: bool = True,
     ) -> list[PromptBlock]:
         blocks: list[PromptBlock] = [
@@ -70,6 +73,10 @@ class ChatPromptAssembler:
             PromptBlock("runtime_policy", self._t("runtime_policy")),
             PromptBlock("loop", self._t("loop.system")),
         ]
+        # Mastery-tutor playbook sits high so it frames the whole turn when a
+        # mastery path is active; empty (and omitted) for ordinary chat.
+        if mastery_note:
+            blocks.append(PromptBlock("mastery_tutor", mastery_note))
         if context.persona_context:
             blocks.append(PromptBlock("persona_style", context.persona_context))
         if context.memory_context:

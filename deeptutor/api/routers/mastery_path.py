@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
+from deeptutor.learning import policy as learning_policy
 from deeptutor.learning import prompts as learning_prompts
 from deeptutor.learning.models import (
     KnowledgePoint,
@@ -115,6 +116,21 @@ async def get_progress(book_id: str):
     return progress.model_dump()
 
 
+@router.get("/progress/{book_id}/map")
+async def get_progress_map(book_id: str):
+    """The dashboard view of a path: the gate-decided next step plus a map of
+    every objective's status (new / learning / mastered). The per-type gate
+    lives in ``learning.policy`` so the dashboard and the tutor agree."""
+    _validate_book_id(book_id)
+    service = get_learning_service()
+    progress = service.get_or_create(book_id)
+    return {
+        "book_id": book_id,
+        "next": learning_policy.next_objective(progress).to_dict(),
+        "map": learning_policy.map_summary(progress),
+    }
+
+
 @router.post("/progress/{book_id}/init-modules")
 async def init_modules(book_id: str, body: InitModulesRequest):
     _validate_book_id(book_id)
@@ -183,10 +199,12 @@ async def redo_progress(book_id: str):
         raise HTTPException(status_code=404, detail="Progress not found")
     progress.current_stage = LearningStage.DIAGNOSTIC
     progress.mastery_levels = {}
+    progress.qualitative_mastery = {}
     progress.quiz_attempts = []
     progress.error_records = []
     progress.repetition_states = {}
     progress.review_queue = []
+    progress.pending_question = None
     progress.feynman_retries = {}
     progress.feynman_explanations = {}
     progress.stage_failure_counts = {}
